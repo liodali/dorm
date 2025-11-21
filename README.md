@@ -72,7 +72,7 @@ See `/example` folder for complete examples.
 | ---------- | -------------------- | ------------------ | ------------------------ |
 | PostgreSQL | ✅ Fully Implemented | `postgres: ^2.6.0` | Production ready         |
 | SQLite3    | ✅ Fully Implemented | `sqlite3: ^3.0.1`  | Production ready         |
-| MySQL      | 🔧 Structure Ready   | `mysql1: ^0.20.0`  | Uncomment code to enable |
+| MySQL      | 🔧 Structure Ready   | `not defined`  | Uncomment code to enable |
 
 ### Enabling MySQL Support
 
