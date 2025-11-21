@@ -15,11 +15,15 @@ class User {
   @Column(nullable: true)
   final DateTime? createdAt;
 
+  @Ignore()
+  final String? temporaryData;
+
   const User({
     this.id,
     required this.name,
     required this.email,
     this.createdAt,
+    this.temporaryData,
   });
 }
 
@@ -106,6 +110,19 @@ void main() async {
       'email': 'test@example.com',
     }).any();
     print('Has test user: $hasUsers');
+
+    // Aggregate functions
+    final maxId = await userRepo.query().max('id');
+    print('Max user ID: $maxId');
+
+    final minId = await userRepo.query().min('id');
+    print('Min user ID: $minId');
+
+    final avgId = await userRepo.query().avg('id');
+    print('Average user ID: $avgId');
+
+    final sumIds = await userRepo.query().sum('id');
+    print('Sum of user IDs: $sumIds');
 
     // Save new user
     print('\n=== Save Example ===');

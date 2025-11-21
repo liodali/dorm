@@ -32,6 +32,9 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
     for (final field in element.fields) {
       if (field.isStatic) continue;
 
+      final ignoreAnnotation = _getAnnotation(field, 'Ignore');
+      if (ignoreAnnotation != null) continue;
+
       final columnAnnotation = _getAnnotation(field, 'Column');
       final idAnnotation = _getAnnotation(field, 'Id');
       final oneToMany = _getAnnotation(field, 'OneToMany');

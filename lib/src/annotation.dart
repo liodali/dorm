@@ -129,6 +129,11 @@ class Index {
   const Index({required this.columns, this.unique = false, this.name});
 }
 
+// Ignore annotation
+class Ignore {
+  const Ignore();
+}
+
 // Enums
 enum ColumnType {
   text,

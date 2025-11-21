@@ -189,6 +189,42 @@ class QueryBuilder<T> {
     return count > 0;
   }
 
+  /// Get maximum value of a column
+  Future<num?> max(String column) async {
+    final sql = _buildAggregateSql('MAX', column);
+    final result = await repository.connection.query(sql, parameters: _params);
+    if (result.isEmpty) return null;
+    final value = result.first['max_value'];
+    return value != null ? (value as num) : null;
+  }
+
+  /// Get minimum value of a column
+  Future<num?> min(String column) async {
+    final sql = _buildAggregateSql('MIN', column);
+    final result = await repository.connection.query(sql, parameters: _params);
+    if (result.isEmpty) return null;
+    final value = result.first['min_value'];
+    return value != null ? (value as num) : null;
+  }
+
+  /// Get sum of a column
+  Future<num?> sum(String column) async {
+    final sql = _buildAggregateSql('SUM', column);
+    final result = await repository.connection.query(sql, parameters: _params);
+    if (result.isEmpty) return null;
+    final value = result.first['sum_value'];
+    return value != null ? (value as num) : null;
+  }
+
+  /// Get average of a column
+  Future<num?> avg(String column) async {
+    final sql = _buildAggregateSql('AVG', column);
+    final result = await repository.connection.query(sql, parameters: _params);
+    if (result.isEmpty) return null;
+    final value = result.first['avg_value'];
+    return value != null ? (value as num) : null;
+  }
+
   /// Get SQL string (for debugging)
   String toSql() {
     return _buildSql();
@@ -229,6 +265,26 @@ class QueryBuilder<T> {
   String _buildCountSql() {
     final sb = StringBuffer();
     sb.write('SELECT COUNT(*) as count FROM ${repository.tableName}');
+
+    if (_joins.isNotEmpty) {
+      sb.write(' ${_joins.join(' ')}');
+    }
+
+    if (_wheres.isNotEmpty) {
+      sb.write(' WHERE ${_wheres.join(' AND ')}');
+    }
+
+    return sb.toString();
+  }
+
+  String _buildAggregateSql(String function, String column) {
+    final sb = StringBuffer();
+    final formattedColumn = _formatColumn(column);
+    final alias = '${function.toLowerCase()}_value';
+
+    sb.write(
+      'SELECT $function($formattedColumn) as $alias FROM ${repository.tableName}',
+    );
 
     if (_joins.isNotEmpty) {
       sb.write(' ${_joins.join(' ')}');
