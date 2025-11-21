@@ -1,0 +1,29 @@
+targets:
+  $default:
+    builders:
+      orm|entity:
+        enabled: true
+      orm|schema:
+        enabled: true
+      orm|migration:
+        enabled: true
+
+builders:
+  entity:
+    import: "package:dorm/tool/entity_generator.dart"
+    builder_factories: ["entityGeneratorBuilder"]
+    build_extensions: {".dart": [".orm.g.dart"]}
+    auto_apply: dependents
+    runs_before: ["source_gen|combining_builder"]
+
+  schema:
+    import: "package:dorm/tool/schema_generator.dart"
+    builder_factories: ["schemaGeneratorBuilder"]
+    build_extensions: {".dart": [".schema.g.dart"]}
+    auto_apply: dependents
+
+  migration:
+    import: "package:dorm/tool/migration_generator.dart"
+    builder_factories: ["migrationGeneratorBuilder"]
+    build_extensions: {".dart": [".migration.g.dart"]}
+    auto_apply: dependents
