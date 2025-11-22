@@ -30,6 +30,7 @@ final ${_toCamelCase(className!)}Schema = DatabaseSchema(
 
   String _generateSchema(ClassElement element, String tableName) {
     final columns = <String>[];
+    final foreignKeys = <String>[];
 
     for (final field in element.fields) {
       if (field.isStatic) continue;
@@ -37,10 +38,23 @@ final ${_toCamelCase(className!)}Schema = DatabaseSchema(
       final column = _readColumnAnnotation(field);
       if (column != null) {
         columns.add(column);
+
+        // Check if this is a foreign key (ends with Id or _id)
+        if (field.displayName.endsWith('Id') ||
+            field.displayName.endsWith('_id')) {
+          final refTable = _inferReferencedTable(field.displayName);
+          foreignKeys.add(
+            "ForeignKey(column: '${_toSnakeCase(field.displayName)}', referencedTable: '$refTable', referencedColumn: 'id')",
+          );
+        }
       }
     }
 
-    return columns.join(',\n    ');
+    final schema = columns.join(',\n    ');
+    if (foreignKeys.isNotEmpty) {
+      return '$schema,\n    // Foreign Keys\n    ${foreignKeys.join(',\n    ')}';
+    }
+    return schema;
   }
 
   String? _readColumnAnnotation(FieldElement field) {
@@ -81,4 +95,18 @@ final ${_toCamelCase(className!)}Schema = DatabaseSchema(
   String _toCamelCase(String text) {
     return text[0].toLowerCase() + text.substring(1);
   }
+
+  String _inferReferencedTable(String fieldName) {
+    // Remove 'Id' or '_id' suffix and convert to table name
+    String tableName = fieldName;
+    if (tableName.endsWith('Id')) {
+      tableName = tableName.substring(0, tableName.length - 2);
+    } else if (tableName.endsWith('_id')) {
+      tableName = tableName.substring(0, tableName.length - 3);
+    }
+    return _toSnakeCase(tableName) + 's'; // Pluralize
+  }
 }
+
+Builder schemaGeneratorBuilder(BuilderOptions options) =>
+    LibraryBuilder(SchemaGenerator(), generatedExtension: '.schema.g.dart');

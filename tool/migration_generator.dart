@@ -34,3 +34,8 @@ class Migration_$version extends DatabaseMigration {
     ''';
   }
 }
+
+Builder migrationGeneratorBuilder(BuilderOptions options) => LibraryBuilder(
+  MigrationGenerator(),
+  generatedExtension: '.migration.g.dart',
+);

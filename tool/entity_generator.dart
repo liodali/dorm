@@ -126,6 +126,11 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
         })
         .join(',\n      ');
 
+    final loadRelationshipsMethod = _generateLoadRelationshipsMethod(
+      className,
+      relationships,
+    );
+
     return '''
 // Generated code for $className
 part of '${_snakeCase(className)}.dart';
@@ -146,15 +151,24 @@ class ${className}Repository extends Repository<$className> {
       $toRowMappings
     };
   }
+
+$loadRelationshipsMethod
 }
     ''';
   }
 
   String _getColumnName(FieldElement field, ElementAnnotation? annotation) {
     if (annotation != null) {
-      // Try to get column name from annotation
-      // This is simplified - in real implementation, parse the annotation
+      // Parse @Column annotation to extract custom name
+      final source = annotation.toSource();
+      final nameMatch = RegExp(
+        r'''name:\s*['"]([\w_]+)['"]''',
+      ).firstMatch(source);
+      if (nameMatch != null) {
+        return nameMatch.group(1)!;
+      }
     }
+    // Convert camelCase to snake_case if no custom name specified
     return _snakeCase(field.displayName);
   }
 
@@ -266,4 +280,128 @@ class ${className}Repository extends Repository<$className> {
         )
         .replaceFirst(RegExp('^_'), '');
   }
+
+  String _generateLoadRelationshipsMethod(
+    String className,
+    List<Map<String, dynamic>> relationships,
+  ) {
+    if (relationships.isEmpty) {
+      return '  @override\n  Future<void> loadRelationships($className entity, List<String> includes) async {\n    // No relationships defined\n  }';
+    }
+
+    final cases = <String>[];
+
+    for (final rel in relationships) {
+      final fieldName = rel['fieldName'];
+      final type = rel['type'];
+      final annotation = rel['annotation'];
+
+      // Determine relationship type
+      String? relationshipType;
+      if (annotation.element?.enclosingElement?.name == 'OneToMany') {
+        relationshipType = 'OneToMany';
+      } else if (annotation.element?.enclosingElement?.name == 'ManyToOne') {
+        relationshipType = 'ManyToOne';
+      } else if (annotation.element?.enclosingElement?.name == 'ManyToMany') {
+        relationshipType = 'ManyToMany';
+      }
+
+      if (relationshipType == null) continue;
+
+      final caseCode = _generateRelationshipCase(
+        fieldName,
+        type,
+        relationshipType,
+        annotation,
+      );
+      cases.add(caseCode);
+    }
+
+    return '''
+  @override
+  Future<void> loadRelationships($className entity, List<String> includes) async {
+    for (final include in includes) {
+      switch (include) {
+${cases.join('\n')}
+        default:
+          throw Exception('Unknown relationship: \$include');
+      }
+    }
+  }''';
+  }
+
+  String _generateRelationshipCase(
+    String fieldName,
+    String type,
+    String relationshipType,
+    ElementAnnotation annotation,
+  ) {
+    final targetEntity = _extractTargetEntity(annotation);
+    final mappedBy = _extractMappedBy(annotation);
+    final joinTable = _extractJoinTableName(annotation);
+
+    if (relationshipType == 'OneToMany') {
+      final foreignKey = mappedBy ?? '${fieldName}_id';
+      return '''        case '$fieldName':
+          // Load OneToMany relationship for $fieldName
+          final ${_toCamelCase(targetEntity)}Repo = ${targetEntity}Repository();
+          ${_toCamelCase(targetEntity)}Repo.setConnection(connection);
+          final ${fieldName}Data = await ${_toCamelCase(targetEntity)}Repo.query()
+            .where('$foreignKey = @id', {'id': entity.id})
+            .toList();
+          // Note: Requires mutable entity or copyWith pattern to set entity.$fieldName
+          break;''';
+    } else if (relationshipType == 'ManyToOne') {
+      final foreignKeyField = mappedBy ?? '${fieldName}Id';
+      return '''        case '$fieldName':
+          // Load ManyToOne relationship for $fieldName
+          final ${_toCamelCase(targetEntity)}Repo = ${targetEntity}Repository();
+          ${_toCamelCase(targetEntity)}Repo.setConnection(connection);
+          final ${fieldName}Data = await ${_toCamelCase(targetEntity)}Repo.findById(entity.$foreignKeyField);
+          // Note: Requires mutable entity or copyWith pattern to set entity.$fieldName
+          break;''';
+    } else if (relationshipType == 'ManyToMany') {
+      final joinTableName = joinTable ?? '${fieldName}_join';
+      final targetTable = _snakeCase(targetEntity);
+      return '''        case '$fieldName':
+          // Load ManyToMany relationship for $fieldName
+          final sql = 'SELECT t.* FROM $targetTable t INNER JOIN $joinTableName jt ON t.id = jt.${targetTable}_id WHERE jt.\${tableName}_id = @id';
+          final results = await connection.query(sql, parameters: {'id': entity.id});
+          final ${_toCamelCase(targetEntity)}Repo = ${targetEntity}Repository();
+          ${_toCamelCase(targetEntity)}Repo.setConnection(connection);
+          final ${fieldName}Data = results.map((r) => ${_toCamelCase(targetEntity)}Repo.fromRow(r)).toList();
+          // Note: Requires mutable entity or copyWith pattern to set entity.$fieldName
+          break;''';
+    }
+
+    return '';
+  }
+
+  String _extractTargetEntity(ElementAnnotation annotation) {
+    final source = annotation.toSource();
+    final match = RegExp(r'targetEntity:\s*(\w+)').firstMatch(source);
+    return match?.group(1) ?? 'Unknown';
+  }
+
+  String? _extractMappedBy(ElementAnnotation annotation) {
+    final source = annotation.toSource();
+    final match = RegExp(r'''mappedBy:\s*['"](\w+)['"]''').firstMatch(source);
+    return match?.group(1);
+  }
+
+  String? _extractJoinTableName(ElementAnnotation annotation) {
+    final source = annotation.toSource();
+    final match = RegExp(
+      r'''joinTableName:\s*['"](\w+)['"]''',
+    ).firstMatch(source);
+    return match?.group(1);
+  }
+
+  String _toCamelCase(String text) {
+    if (text.isEmpty) return text;
+    return text[0].toLowerCase() + text.substring(1);
+  }
 }
+
+Builder entityGeneratorBuilder(BuilderOptions options) =>
+    LibraryBuilder(EntityGenerator(), generatedExtension: '.orm.g.dart');
