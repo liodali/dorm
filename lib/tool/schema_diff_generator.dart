@@ -88,6 +88,7 @@ class _SchemaDiffHelper {
     }
 
     // Generate migration for changes
+    await _saveSchema(currentSchema);
     return _generateDiffMigration(diff, currentSchema, dbType);
   }
 

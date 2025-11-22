@@ -50,27 +50,32 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
         continue;
       }
 
-      if (columnAnnotation != null || idAnnotation != null) {
-        final columnName = _getColumnName(field, columnAnnotation);
-        final sqlType = _getSqlType(field.type, dbType, columnAnnotation);
-        final isPrimaryKey =
-            idAnnotation != null ||
-            (columnAnnotation != null && _isPrimaryKey(columnAnnotation));
+      // Process all fields that are not relationships or ignored
+      final columnName = _getColumnName(field, columnAnnotation);
+      final sqlType = _getSqlType(field.type, dbType, columnAnnotation);
+      final isPrimaryKey =
+          idAnnotation != null ||
+          (columnAnnotation != null && _isPrimaryKey(columnAnnotation));
 
-        fields.add({
-          'name': field.name,
-          'type': field.type.getDisplayString(withNullability: true),
-          'columnName': columnName,
-          'sqlType': sqlType,
-          'isPrimaryKey': isPrimaryKey,
-          'isNullable': field.type.nullabilitySuffix.toString().contains(
-            'question',
-          ),
-          'column': columnAnnotation,
-          'id': idAnnotation,
-        });
-      }
+      fields.add({
+        'name': field.name,
+        'type': field.type.getDisplayString(withNullability: true),
+        'columnName': columnName,
+        'sqlType': sqlType,
+        'isPrimaryKey': isPrimaryKey,
+        'isNullable': field.type.nullabilitySuffix.toString().contains(
+          'question',
+        ),
+        'column': columnAnnotation,
+        'id': idAnnotation,
+      });
     }
+
+    // Get source file path for import calculation
+    final sourceFilePath = buildStep.inputId.path;
+
+    // Detect constructor parameters
+    final constructorParams = _getConstructorParameters(element);
 
     final code = _generateRepositoryCode(
       className!,
@@ -78,10 +83,31 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
       fields,
       relationships,
       dbType,
+      sourceFilePath,
+      constructorParams,
     );
 
     // Return the generated code
     return code;
+  }
+
+  /// Extract constructor parameters from the class
+  Map<String, bool> _getConstructorParameters(ClassElement element) {
+    final params = <String, bool>{}; // paramName -> isRequired
+
+    // Get all non-static fields as they're likely constructor params
+    for (final field in element.fields) {
+      if (!field.isStatic) {
+        // Check if field type is nullable
+        final isNullable = field.type.nullabilitySuffix.toString().contains(
+          'question',
+        );
+        params[field.displayName] =
+            !isNullable; // Non-nullable fields are required
+      }
+    }
+
+    return params;
   }
 
   String _tableNameFromClass(String className) {
@@ -108,6 +134,8 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
     List<Map<String, dynamic>> fields,
     List<Map<String, dynamic>> relationships,
     DatabaseType dbType,
+    String sourceFilePath,
+    Map<String, bool> constructorParams,
   ) {
     final fromRowMappings = fields
         .map((f) {
@@ -131,9 +159,15 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
       relationships,
     );
 
+    // Calculate relative import path from lib/db_gen to the source file
+    final entityImportPath = _calculateEntityImportPath(sourceFilePath);
+
     return '''
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // Generated code for $className
-part of '${_snakeCase(className)}.dart';
+
+import 'package:dorm/dorm.dart';
+import '$entityImportPath';
 
 class ${className}Repository extends Repository<$className> {
   ${className}Repository() : super('$tableName');
@@ -155,6 +189,22 @@ class ${className}Repository extends Repository<$className> {
 $loadRelationshipsMethod
 }
     ''';
+  }
+
+  /// Calculate the relative import path from generated file to the entity source file
+  String _calculateEntityImportPath(String sourceFilePath) {
+    // Source file: lib/src/models/user_entity.dart
+    // Generated file: lib/src/models/user_entity.orm.g.dart (same directory)
+    // Import should be: 'user_entity.dart'
+
+    if (sourceFilePath.startsWith('lib/')) {
+      // Extract just the filename since generated file is in same directory
+      final fileName = sourceFilePath.split('/').last;
+      return fileName;
+    }
+
+    // Fallback to absolute package import
+    return sourceFilePath;
   }
 
   String _getColumnName(FieldElement field, ElementAnnotation? annotation) {
@@ -263,7 +313,7 @@ $loadRelationshipsMethod
         conversion = 'DateTime.parse($value as String)';
         break;
       default:
-        conversion = '$value';
+        conversion = value;
     }
 
     if (isNullable) {
@@ -403,5 +453,54 @@ ${cases.join('\n')}
   }
 }
 
-Builder entityGeneratorBuilder(BuilderOptions options) =>
-    LibraryBuilder(EntityGenerator(), generatedExtension: '.orm.g.dart');
+Builder entityGeneratorBuilder(BuilderOptions options) {
+  return _CustomPathBuilder(
+    EntityGenerator(),
+    generatedExtension: '.orm.g.dart',
+  );
+}
+
+/// Custom builder that outputs to lib/db_gen directory
+class _CustomPathBuilder extends Builder {
+  final GeneratorForAnnotation _generator;
+  final String generatedExtension;
+
+  _CustomPathBuilder(this._generator, {required this.generatedExtension});
+
+  @override
+  Map<String, List<String>> get buildExtensions {
+    // Match any .dart file in lib/ and declare output pattern
+    // Build runner will use this to know where to expect the output
+    // return const {
+    //   '.dart': [
+    //     'db_gen/entities/{{}}.orm.g.dart',
+    //   ],
+    // };
+    return const {
+      'dart': ['orm.g.dart'],
+    };
+  }
+
+  @override
+  Future<void> build(BuildStep buildStep) async {
+    final resolver = buildStep.resolver;
+    if (!await resolver.isLibrary(buildStep.inputId)) return;
+
+    final lib = await buildStep.inputLibrary;
+    final generated = await _generator.generate(
+      LibraryReader(lib),
+      buildStep,
+    );
+
+    if (generated.isEmpty) return;
+
+    // Build the output path based on buildExtensions pattern
+    // Input: lib/src/models/post_entity.dart
+    // Output: lib/src/models/post_entity.orm.g.dart (as declared in buildExtensions)
+    final inputPath = buildStep.inputId.path;
+    final outputPath = inputPath.replaceAll('.dart', generatedExtension);
+
+    final outputId = AssetId(buildStep.inputId.package, outputPath);
+    await buildStep.writeAsString(outputId, generated);
+  }
+}
