@@ -1,0 +1,10 @@
+targets:
+  $default:
+    sources:
+      - lib/**
+      - $package$
+    builders:
+      dorm|entity:
+        enabled: true
+        # generate_for:
+        #  - lib/src/*_entity.dart
