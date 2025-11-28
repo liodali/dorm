@@ -159,15 +159,14 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
       relationships,
     );
 
-    // Calculate relative import path from lib/db_gen to the source file
-    final entityImportPath = _calculateEntityImportPath(sourceFilePath);
+    // Calculate relative path for part of directive
+    final entityFileName = _getEntityFileName(sourceFilePath);
 
     return '''
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // Generated code for $className
 
-import 'package:dorm/dorm.dart';
-import '$entityImportPath';
+part of '$entityFileName';
 
 class ${className}Repository extends Repository<$className> {
   ${className}Repository() : super('$tableName');
@@ -191,20 +190,12 @@ $loadRelationshipsMethod
     ''';
   }
 
-  /// Calculate the relative import path from generated file to the entity source file
-  String _calculateEntityImportPath(String sourceFilePath) {
+  /// Get the entity file name for the part of directive
+  String _getEntityFileName(String sourceFilePath) {
     // Source file: lib/src/models/user_entity.dart
     // Generated file: lib/src/models/user_entity.orm.g.dart (same directory)
-    // Import should be: 'user_entity.dart'
-
-    if (sourceFilePath.startsWith('lib/')) {
-      // Extract just the filename since generated file is in same directory
-      final fileName = sourceFilePath.split('/').last;
-      return fileName;
-    }
-
-    // Fallback to absolute package import
-    return sourceFilePath;
+    // part of should be: 'user_entity.dart'
+    return sourceFilePath.split('/').last;
   }
 
   String _getColumnName(FieldElement field, ElementAnnotation? annotation) {
