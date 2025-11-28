@@ -104,9 +104,9 @@ final ${_toCamelCase(className!)}Schema = DatabaseSchema(
     } else if (tableName.endsWith('_id')) {
       tableName = tableName.substring(0, tableName.length - 3);
     }
-    return _toSnakeCase(tableName) + 's'; // Pluralize
+    return '${_toSnakeCase(tableName)}s'; // Pluralize
   }
 }
 
 Builder schemaGeneratorBuilder(BuilderOptions options) =>
-    LibraryBuilder(SchemaGenerator(), generatedExtension: '.schema.g.dart');
+    PartBuilder([SchemaGenerator()], '.schema.g.dart');

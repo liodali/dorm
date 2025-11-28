@@ -11,6 +11,7 @@ export 'src/query_builder.dart';
 export 'src/raw_query.dart';
 export 'src/stored_procedure.dart';
 export 'src/migration.dart';
+export 'src/schema.dart';
 
 // Database connection
 export 'src/database/database_connection.dart';

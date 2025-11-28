@@ -12,10 +12,10 @@ abstract class DatabaseMigration {
   }
 
   /// Migration up - create/modify schema
-  Future<void> Up();
+  Future<void> up();
 
   /// Migration down - rollback schema
-  Future<void> Down();
+  Future<void> down();
 }
 
 // /// Example migration with PostgreSQL SERIAL support
@@ -102,7 +102,7 @@ class MigrationRunner {
     for (var migration in migrations) {
       if (!applied.contains(migration.version)) {
         migration.setConnection(connection);
-        await migration.Up();
+        await migration.up();
         await _recordMigration(migration.version, migration.description);
         print('✓ Migration ${migration.version}: ${migration.description}');
       }
@@ -120,7 +120,7 @@ class MigrationRunner {
     final migration = migrations.firstWhere((m) => m.version == lastVersion);
 
     migration.setConnection(connection);
-    await migration.Down();
+    await migration.down();
     await _removeMigrationRecord(lastVersion);
     print('✓ Rolled back migration $lastVersion');
   }
