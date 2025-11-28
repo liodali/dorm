@@ -1,5 +1,6 @@
 import 'package:dorm/dorm.dart';
 
+part 'user_entity.orm.g.dart';
 
 @Entity(tableName: 'users', dbType: DatabaseType.postgresql)
 class UserEntity {
@@ -10,9 +11,5 @@ class UserEntity {
 
   String email;
 
-  UserEntity({
-    this.id,
-    required this.name,
-    required this.email,
-  });
+  UserEntity({this.id, required this.name, required this.email});
 }
