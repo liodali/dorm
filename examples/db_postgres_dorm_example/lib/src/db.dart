@@ -1,11 +1,20 @@
-import 'package:db_postgres_dorm_example/src/models/user_entity.dart';
+import 'package:db_postgres_dorm_example/src/models/post_entity.dart';
 import 'package:dorm/dorm.dart';
 
+import 'models/user_entity.dart';
+
+part 'db.db.g.dart';
+
+@Db(
+  entities: [UserEntity, PostEntity],
+  migrationVersion: 1,
+  dbType: DatabaseType.postgresql,
+  name: 'mydb',
+)
 class Database {
   final DatabaseConfig config;
   DatabaseConnection? _connection;
 
-  final UserEntityRepository userRepo;
   Database()
     : config = DatabaseConfig.postgresql(
         host: 'localhost',
@@ -13,19 +22,21 @@ class Database {
         database: 'mydb',
         username: 'user',
         password: 'password',
-      ),
-      userRepo = UserEntityRepository();
+      );
+
+  /// Get the database connection
+  DatabaseConnection? get connection => _connection;
 
   Future<void> init() async {
     _connection ??= await DatabaseFactory.createConnection(config);
   }
 
   Future<UserEntity?> getUserById(int id) async {
-    return userRepo.findById(id);
+    return userEntityRepository.findById(id);
   }
 
   Future<void> close() async {
-    _connection?.close();
+    await _connection?.close();
     _connection = null;
   }
 }

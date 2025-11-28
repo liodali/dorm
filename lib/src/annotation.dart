@@ -148,3 +148,34 @@ enum ColumnType {
 }
 
 enum QueryType { select, insert, update, delete }
+
+/// Database annotation for generating a database class with repositories
+///
+/// Example:
+/// ```dart
+/// @Db(
+///   entities: [UserEntity, PostEntity],
+///   migrationVersion: 1,
+/// )
+/// class AppDatabase {}
+/// ```
+class Db {
+  /// List of entity types to include in the database
+  final List<Type> entities;
+
+  /// Current migration version
+  final int migrationVersion;
+
+  /// Database type (postgresql, mysql, sqlite)
+  final DatabaseType dbType;
+
+  /// Optional database name
+  final String? name;
+
+  const Db({
+    required this.entities,
+    this.migrationVersion = 1,
+    this.dbType = DatabaseType.postgresql,
+    this.name,
+  });
+}

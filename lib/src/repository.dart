@@ -20,7 +20,7 @@ abstract class Repository<T> {
     connection = conn;
   }
 
-  /// Save entity (INSERT or UPDATE)
+  /// Save entity (INSERT only)
   Future<T> save(T entity) async {
     final row = toRow(entity);
     final columns = row.keys.join(', ');

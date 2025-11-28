@@ -3,6 +3,8 @@ targets:
     builders:
       orm|entity:
         enabled: true
+      orm|db:
+        enabled: true
       orm|schema:
         enabled: true
       orm|migration:
@@ -18,6 +20,13 @@ builders:
     auto_apply: dependents
     build_to: source
     runs_before: ["source_gen|combining_builder"]
+
+  db:
+    import: "package:dorm/tool/db_generator.dart"
+    builder_factories: ["dbGeneratorBuilder"]
+    build_extensions: { ".dart": [".db.g.dart"] }
+    auto_apply: dependents
+    build_to: source
 
   schema:
     import: "package:dorm/tool/schema_generator.dart"
