@@ -134,6 +134,84 @@ enum RelationAction {
   setDefault,
 }
 
+/// OneToOne relationship annotation
+///
+/// Defines a one-to-one relationship between entities.
+/// One side must be the owning side (has the FK column), the other is the inverse side.
+///
+/// Example:
+/// ```dart
+/// // In UserEntity (inverse side - no FK column)
+/// @OneToOne(
+///   targetEntity: ProfileEntity,
+///   mappedBy: 'user',  // Field name in ProfileEntity
+/// )
+/// ProfileEntity? profile;
+///
+/// // In ProfileEntity (owning side - has FK column)
+/// @OneToOne(
+///   targetEntity: UserEntity,
+///   foreignKey: 'user_id',
+///   isOwning: true,
+///   onDelete: RelationAction.cascade,
+/// )
+/// UserEntity? user;
+/// ```
+class OneToOne {
+  /// The target entity type for this relationship
+  final Type targetEntity;
+
+  /// Field name in the target entity that owns the relationship
+  /// Used on the inverse side to reference the owning side's field
+  final String? mappedBy;
+
+  /// Foreign key column name in this entity's table
+  /// Required on the owning side (the side that has the FK column)
+  final String? foreignKey;
+
+  /// Referenced column in the target entity (usually 'id')
+  final String referencedColumn;
+
+  /// Whether this is the owning side (has the FK column)
+  final bool isOwning;
+
+  /// Whether to cascade delete operations
+  final bool cascadeDelete;
+
+  /// Whether to lazy load the relationship
+  final bool lazyLoad;
+
+  /// Whether to eager load the relationship
+  final bool eagerLoad;
+
+  /// Whether this relationship is nullable
+  final bool nullable;
+
+  /// Whether to enforce uniqueness on the FK column (ensures 1:1)
+  final bool unique;
+
+  /// Action to take on delete of referenced entity
+  final RelationAction onDelete;
+
+  /// Action to take on update of referenced entity
+  final RelationAction onUpdate;
+
+  const OneToOne({
+    required this.targetEntity,
+    this.mappedBy,
+    this.foreignKey,
+    this.referencedColumn = 'id',
+    this.isOwning = false,
+    this.cascadeDelete = false,
+    this.lazyLoad = true,
+    this.eagerLoad = false,
+    this.nullable = true,
+    this.unique = true,
+    this.onDelete = RelationAction.noAction,
+    this.onUpdate = RelationAction.noAction,
+  });
+}
+
 /// ManyToMany relationship annotation
 ///
 /// Creates a junction table to link two entities.
