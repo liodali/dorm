@@ -69,15 +69,97 @@ class ManyToOne {
   });
 }
 
+/// ManyToMany relationship annotation
+///
+/// Creates a junction table to link two entities.
+///
+/// Example:
+/// ```dart
+/// // In UserEntity
+/// @ManyToMany(
+///   targetEntity: RoleEntity,
+///   joinTable: JoinTable(
+///     name: 'user_roles',
+///     joinColumn: JoinColumn(name: 'user_id', referencedColumn: 'id'),
+///     inverseJoinColumn: JoinColumn(name: 'role_id', referencedColumn: 'id'),
+///   ),
+/// )
+/// List<RoleEntity>? roles;
+///
+/// // In RoleEntity (inverse side)
+/// @ManyToMany(
+///   targetEntity: UserEntity,
+///   mappedBy: 'roles',  // References the field in UserEntity
+/// )
+/// List<UserEntity>? users;
+/// ```
 class ManyToMany {
+  /// The target entity type for this relationship
   final Type targetEntity;
-  final String joinTableName;
-  final String inverseFieldName;
+
+  /// Junction table configuration (required on owning side)
+  final JoinTable? joinTable;
+
+  /// Field name in the target entity that owns the relationship (for inverse side)
+  /// If set, this is the inverse side and joinTable should be null
+  final String? mappedBy;
+
+  /// Whether to cascade delete operations
+  final bool cascadeDelete;
+
+  /// Whether to lazy load the relationship
+  final bool lazyLoad;
+
+  /// Index configuration for the junction table
+  final bool createIndex;
 
   const ManyToMany({
     required this.targetEntity,
-    required this.joinTableName,
-    required this.inverseFieldName,
+    this.joinTable,
+    this.mappedBy,
+    this.cascadeDelete = false,
+    this.lazyLoad = true,
+    this.createIndex = true,
+  });
+}
+
+/// Junction table configuration for ManyToMany relationships
+class JoinTable {
+  /// Name of the junction table
+  final String name;
+
+  /// Column configuration for the owning entity's foreign key
+  final JoinColumn joinColumn;
+
+  /// Column configuration for the target entity's foreign key
+  final JoinColumn inverseJoinColumn;
+
+  /// Additional indexes to create on the junction table
+  final List<String>? additionalIndexes;
+
+  const JoinTable({
+    required this.name,
+    required this.joinColumn,
+    required this.inverseJoinColumn,
+    this.additionalIndexes,
+  });
+}
+
+/// Column configuration for junction table foreign keys
+class JoinColumn {
+  /// Column name in the junction table
+  final String name;
+
+  /// Referenced column in the source entity (usually 'id')
+  final String referencedColumn;
+
+  /// Whether this column is nullable
+  final bool nullable;
+
+  const JoinColumn({
+    required this.name,
+    this.referencedColumn = 'id',
+    this.nullable = false,
   });
 }
 

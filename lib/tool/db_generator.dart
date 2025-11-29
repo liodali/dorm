@@ -32,9 +32,24 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     // Extract entity types and their schema info from annotation
     final entitiesReader = annotation.peek('entities');
     final entities = <_EntityInfo>[];
+    final manyToManyRelations = <_ManyToManyInfo>[];
+    final entityElements = <String, ClassElement>{};
 
     if (entitiesReader != null && !entitiesReader.isNull) {
       final entityList = entitiesReader.listValue;
+
+      // First pass: collect all entity elements
+      for (final entityValue in entityList) {
+        final typeValue = entityValue.toTypeValue();
+        if (typeValue != null) {
+          final entityElement = typeValue.element;
+          if (entityElement is ClassElement && entityElement.name != null) {
+            entityElements[entityElement.name!] = entityElement;
+          }
+        }
+      }
+
+      // Second pass: extract entity info and relationships
       for (final entityValue in entityList) {
         final typeValue = entityValue.toTypeValue();
         if (typeValue != null) {
@@ -58,6 +73,14 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
             // Extract fields/columns from entity
             final columns = _extractColumnsFromEntity(entityElement);
 
+            // Extract ManyToMany relationships
+            final m2mRelations = _extractManyToManyRelations(
+              entityElement,
+              tableName,
+              entityElements,
+            );
+            manyToManyRelations.addAll(m2mRelations);
+
             entities.add(
               _EntityInfo(
                 className: entityElement.name!,
@@ -71,17 +94,229 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
       }
     }
 
-    // Generate schema hash to detect changes
-    final schemaHash = _generateSchemaHash(entities);
+    // Validate ManyToMany relationships
+    final validationErrors = _validateManyToManyRelations(
+      manyToManyRelations,
+      entityElements,
+    );
+    if (validationErrors.isNotEmpty) {
+      throw InvalidGenerationSourceError(
+        'ManyToMany configuration errors:\n${validationErrors.join('\n')}',
+        element: element,
+      );
+    }
+
+    // Deduplicate junction tables (keep only owning side)
+    final junctionTables = _deduplicateJunctionTables(manyToManyRelations);
+
+    // Generate schema hash to detect changes (include junction tables)
+    final schemaHash = _generateSchemaHash(entities, junctionTables);
 
     return _generateDbCode(
       className: className!,
       entities: entities,
+      junctionTables: junctionTables,
       migrationVersion: migrationVersion,
       configInfo: configInfo,
       dbName: dbName,
       schemaHash: schemaHash,
     );
+  }
+
+  /// Extract ManyToMany relationships from entity
+  List<_ManyToManyInfo> _extractManyToManyRelations(
+    ClassElement element,
+    String ownerTableName,
+    Map<String, ClassElement> entityElements,
+  ) {
+    final relations = <_ManyToManyInfo>[];
+    // Regex patterns for parsing annotations
+    final targetEntityPattern = RegExp(r'targetEntity:\s*(\w+)');
+    final mappedByPattern = RegExp(r'''mappedBy:\s*['"](\w+)['"]''');
+    final joinTablePattern = RegExp(r'joinTable:\s*JoinTable');
+    final namePattern = RegExp(r'''name:\s*['"](\w+)['"]''');
+    final createIndexPattern = RegExp(r'createIndex:\s*(true|false)');
+
+    for (final field in element.fields) {
+      if (field.isStatic) continue;
+
+      for (final meta in field.metadata.annotations) {
+        if (meta.element?.enclosingElement?.name == 'ManyToMany') {
+          final source = meta.toSource();
+
+          // Extract targetEntity
+          final targetMatch = targetEntityPattern.firstMatch(source);
+          if (targetMatch == null) continue;
+          final targetEntityName = targetMatch.group(1)!;
+
+          // Check if this is the owning side (has joinTable) or inverse side (has mappedBy)
+          final mappedByMatch = mappedByPattern.firstMatch(source);
+          final hasJoinTable = joinTablePattern.hasMatch(source);
+          final isOwningSide = hasJoinTable || mappedByMatch == null;
+
+          if (isOwningSide && mappedByMatch == null) {
+            // Owning side - extract or generate junction table config
+            String joinTableName;
+            String joinColumnName;
+            String joinColumnRef;
+            String inverseColumnName;
+            String inverseColumnRef;
+            bool createIndex = true;
+
+            // Try to extract table name from annotation
+            final nameMatch = namePattern.firstMatch(source);
+            if (nameMatch != null) {
+              joinTableName = nameMatch.group(1)!;
+            } else {
+              // Auto-generate junction table name
+              joinTableName =
+                  '${ownerTableName}_${_toSnakeCase(targetEntityName)}';
+            }
+
+            // Default column names (can be customized via JoinColumn in annotation)
+            joinColumnName = '${ownerTableName}_id';
+            joinColumnRef = 'id';
+            inverseColumnName = '${_toSnakeCase(targetEntityName)}_id';
+            inverseColumnRef = 'id';
+
+            // Check createIndex
+            final indexMatch = createIndexPattern.firstMatch(source);
+            if (indexMatch != null) {
+              createIndex = indexMatch.group(1) == 'true';
+            }
+
+            relations.add(
+              _ManyToManyInfo(
+                ownerEntityName: element.name!,
+                ownerTableName: ownerTableName,
+                targetEntityName: targetEntityName,
+                fieldName: field.name!, // Fix null safety for field.name
+                joinTableName: joinTableName,
+                joinColumnName: joinColumnName,
+                joinColumnRef: joinColumnRef,
+                inverseColumnName: inverseColumnName,
+                inverseColumnRef: inverseColumnRef,
+                isOwningSide: true,
+                createIndex: createIndex,
+              ),
+            );
+          } else {
+            // Inverse side - just record for validation
+            relations.add(
+              _ManyToManyInfo(
+                ownerEntityName: element.name!,
+                ownerTableName: ownerTableName,
+                targetEntityName: targetEntityName,
+                fieldName: field.name!,
+                joinTableName: '',
+                joinColumnName: '',
+                joinColumnRef: '',
+                inverseColumnName: '',
+                inverseColumnRef: '',
+                isOwningSide: false,
+                mappedBy: mappedByMatch?.group(1),
+                createIndex: false,
+              ),
+            );
+          }
+        }
+      }
+    }
+
+    return relations;
+  }
+
+  /// Validate ManyToMany relationships
+  List<String> _validateManyToManyRelations(
+    List<_ManyToManyInfo> relations,
+    Map<String, ClassElement> entityElements,
+  ) {
+    final errors = <String>[];
+
+    for (final relation in relations) {
+      // Check target entity exists
+      if (!entityElements.containsKey(relation.targetEntityName)) {
+        errors.add(
+          '${relation.ownerEntityName}.${relation.fieldName}: Target entity "${relation.targetEntityName}" not found in @Db entities list',
+        );
+        continue;
+      }
+
+      if (relation.isOwningSide) {
+        // Owning side must have joinTable
+        if (relation.joinTableName.isEmpty) {
+          errors.add(
+            '${relation.ownerEntityName}.${relation.fieldName}: Owning side must define joinTable',
+          );
+        }
+
+        // Check if inverse side exists and references this field
+        final inverseRelations = relations.where(
+          (r) =>
+              !r.isOwningSide &&
+              r.ownerEntityName == relation.targetEntityName &&
+              r.targetEntityName == relation.ownerEntityName,
+        );
+
+        if (inverseRelations.isEmpty) {
+          // Warning: no inverse side defined (optional but recommended)
+        } else {
+          for (final inverse in inverseRelations) {
+            if (inverse.mappedBy != relation.fieldName) {
+              errors.add(
+                '${inverse.ownerEntityName}.${inverse.fieldName}: mappedBy="${inverse.mappedBy}" does not match owning field "${relation.fieldName}" in ${relation.ownerEntityName}',
+              );
+            }
+          }
+        }
+      } else {
+        // Inverse side must have mappedBy
+        if (relation.mappedBy == null || relation.mappedBy!.isEmpty) {
+          errors.add(
+            '${relation.ownerEntityName}.${relation.fieldName}: Inverse side must define mappedBy',
+          );
+        } else {
+          // Check that mappedBy references a valid field in target entity
+          final targetElement = entityElements[relation.targetEntityName];
+          if (targetElement != null) {
+            final mappedField = targetElement.fields
+                .where((f) => f.name == relation.mappedBy)
+                .firstOrNull;
+            if (mappedField == null) {
+              errors.add(
+                '${relation.ownerEntityName}.${relation.fieldName}: mappedBy="${relation.mappedBy}" field not found in ${relation.targetEntityName}',
+              );
+            }
+          }
+        }
+      }
+    }
+
+    return errors;
+  }
+
+  /// Deduplicate junction tables - keep only owning side definitions
+  List<_JunctionTableInfo> _deduplicateJunctionTables(
+    List<_ManyToManyInfo> relations,
+  ) {
+    final tables = <String, _JunctionTableInfo>{};
+
+    for (final relation in relations.where((r) => r.isOwningSide)) {
+      if (!tables.containsKey(relation.joinTableName)) {
+        tables[relation.joinTableName] = _JunctionTableInfo(
+          tableName: relation.joinTableName,
+          ownerTableName: relation.ownerTableName,
+          targetTableName: _toSnakeCase(relation.targetEntityName),
+          joinColumnName: relation.joinColumnName,
+          joinColumnRef: relation.joinColumnRef,
+          inverseColumnName: relation.inverseColumnName,
+          inverseColumnRef: relation.inverseColumnRef,
+          createIndex: relation.createIndex,
+        );
+      }
+    }
+
+    return tables.values.toList();
   }
 
   /// Extract DbConfig from annotation
@@ -203,8 +438,11 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
   }
 
   /// Generate a hash of the schema for change detection
-  String _generateSchemaHash(List<_EntityInfo> entities) {
-    final schemaString = entities
+  String _generateSchemaHash(
+    List<_EntityInfo> entities,
+    List<_JunctionTableInfo> junctionTables,
+  ) {
+    final entitySchemaString = entities
         .map((e) {
           final columnsStr = e.columns
               .map(
@@ -216,6 +454,13 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
         })
         .join('|');
 
+    final junctionSchemaString = junctionTables
+        .map(
+          (j) => '${j.tableName}[${j.joinColumnName},${j.inverseColumnName}]',
+        )
+        .join('|');
+
+    final schemaString = '$entitySchemaString||$junctionSchemaString';
     final bytes = utf8.encode(schemaString);
     final digest = md5.convert(bytes);
     return digest.toString();
@@ -224,6 +469,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
   String _generateDbCode({
     required String className,
     required List<_EntityInfo> entities,
+    required List<_JunctionTableInfo> junctionTables,
     required int migrationVersion,
     _DbConfigInfo? configInfo,
     String? dbName,
@@ -245,6 +491,11 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     // Generate database schema (linked to database, not entity)
     buffer.writeln(_generateDatabaseSchema(className, entities));
 
+    // Generate junction table schemas
+    if (junctionTables.isNotEmpty) {
+      buffer.writeln(_generateJunctionTableSchemas(className, junctionTables));
+    }
+
     // Generate singleton repository holders
     buffer.writeln(_generateRepositoryHolders(className, entities));
 
@@ -256,6 +507,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
       _generateDbLifecycleExtension(
         className,
         entities,
+        junctionTables,
         migrationVersion,
         schemaHash,
         configInfo,
@@ -376,15 +628,50 @@ $repoGetters
 ''';
   }
 
+  /// Generate junction table schema definitions
+  String _generateJunctionTableSchemas(
+    String dbClassName,
+    List<_JunctionTableInfo> junctionTables,
+  ) {
+    final schemas = junctionTables
+        .map((j) {
+          return '''
+/// Junction table schema for ${j.ownerTableName} <-> ${j.targetTableName}
+final ${_toCamelCase(j.tableName)}Schema = DatabaseSchema(
+  tableName: '${j.tableName}',
+  columns: [
+    ColumnSchema(name: '${j.joinColumnName}', type: 'INTEGER', nullable: false, primaryKey: false),
+    ColumnSchema(name: '${j.inverseColumnName}', type: 'INTEGER', nullable: false, primaryKey: false),
+  ],
+);
+''';
+        })
+        .join('\n');
+
+    final schemaList = junctionTables
+        .map((j) => '${_toCamelCase(j.tableName)}Schema')
+        .join(', ');
+
+    return '''
+// Junction table schemas for $dbClassName
+$schemas
+/// All junction table schemas
+final ${_toCamelCase(dbClassName)}JunctionSchemas = <DatabaseSchema>[$schemaList];
+''';
+  }
+
   String _generateDbLifecycleExtension(
     String dbClassName,
     List<_EntityInfo> entities,
+    List<_JunctionTableInfo> junctionTables,
     int migrationVersion,
     String schemaHash,
     _DbConfigInfo? configInfo,
   ) {
     final schemaListVar = '${_toCamelCase(dbClassName)}Schemas';
+    final junctionSchemaListVar = '${_toCamelCase(dbClassName)}JunctionSchemas';
     final hasConfig = configInfo != null;
+    final hasJunctionTables = junctionTables.isNotEmpty;
     final defaultConfigFunc = '_${_toCamelCase(dbClassName)}DefaultConfig';
 
     return '''
@@ -655,6 +942,58 @@ class _DbConfigInfo {
     this.password,
     required this.dbType,
     required this.ssl,
+  });
+}
+
+class _ManyToManyInfo {
+  final String ownerEntityName;
+  final String ownerTableName;
+  final String targetEntityName;
+  final String fieldName;
+  final String joinTableName;
+  final String joinColumnName;
+  final String joinColumnRef;
+  final String inverseColumnName;
+  final String inverseColumnRef;
+  final bool isOwningSide;
+  final String? mappedBy;
+  final bool createIndex;
+
+  _ManyToManyInfo({
+    required this.ownerEntityName,
+    required this.ownerTableName,
+    required this.targetEntityName,
+    required this.fieldName,
+    required this.joinTableName,
+    required this.joinColumnName,
+    required this.joinColumnRef,
+    required this.inverseColumnName,
+    required this.inverseColumnRef,
+    required this.isOwningSide,
+    this.mappedBy,
+    required this.createIndex,
+  });
+}
+
+class _JunctionTableInfo {
+  final String tableName;
+  final String ownerTableName;
+  final String targetTableName;
+  final String joinColumnName;
+  final String joinColumnRef;
+  final String inverseColumnName;
+  final String inverseColumnRef;
+  final bool createIndex;
+
+  _JunctionTableInfo({
+    required this.tableName,
+    required this.ownerTableName,
+    required this.targetTableName,
+    required this.joinColumnName,
+    required this.joinColumnRef,
+    required this.inverseColumnName,
+    required this.inverseColumnRef,
+    required this.createIndex,
   });
 }
 

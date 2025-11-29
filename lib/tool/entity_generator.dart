@@ -156,6 +156,21 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
 
     final loadRelationshipsMethod = _generateLoadRelationshipsMethod(
       className,
+      tableName,
+      relationships,
+    );
+
+    // Generate ManyToMany helper methods
+    final manyToManyMethods = _generateManyToManyMethods(
+      className,
+      tableName,
+      relationships,
+    );
+
+    // Generate findWithRelations method
+    final findWithRelationsMethod = _generateFindWithRelationsMethod(
+      className,
+      tableName,
       relationships,
     );
 
@@ -186,6 +201,10 @@ class ${className}Repository extends Repository<$className> {
   }
 
 $loadRelationshipsMethod
+
+$manyToManyMethods
+
+$findWithRelationsMethod
 }
     ''';
   }
@@ -324,6 +343,7 @@ $loadRelationshipsMethod
 
   String _generateLoadRelationshipsMethod(
     String className,
+    String tableName,
     List<Map<String, dynamic>> relationships,
   ) {
     if (relationships.isEmpty) {
@@ -354,6 +374,7 @@ $loadRelationshipsMethod
         type,
         relationshipType,
         annotation,
+        tableName,
       );
       cases.add(caseCode);
     }
@@ -376,13 +397,18 @@ ${cases.join('\n')}
     String type,
     String relationshipType,
     ElementAnnotation annotation,
+    String ownerTableName,
   ) {
     final targetEntity = _extractTargetEntity(annotation);
     final mappedBy = _extractMappedBy(annotation);
-    final joinTable = _extractJoinTableName(annotation);
+    final joinTableInfo = _extractJoinTableInfo(
+      annotation,
+      ownerTableName,
+      targetEntity,
+    );
 
     if (relationshipType == 'OneToMany') {
-      final foreignKey = mappedBy ?? '${fieldName}_id';
+      final foreignKey = mappedBy ?? '${_snakeCase(ownerTableName)}_id';
       return '''        case '$fieldName':
           // Load OneToMany relationship for $fieldName
           final ${_toCamelCase(targetEntity)}Repo = ${targetEntity}Repository();
@@ -402,20 +428,42 @@ ${cases.join('\n')}
           // Note: Requires mutable entity or copyWith pattern to set entity.$fieldName
           break;''';
     } else if (relationshipType == 'ManyToMany') {
-      final joinTableName = joinTable ?? '${fieldName}_join';
-      final targetTable = _snakeCase(targetEntity);
+      final joinTableName = joinTableInfo['tableName']!;
       return '''        case '$fieldName':
-          // Load ManyToMany relationship for $fieldName
-          final sql = 'SELECT t.* FROM $targetTable t INNER JOIN $joinTableName jt ON t.id = jt.${targetTable}_id WHERE jt.\${tableName}_id = @id';
-          final results = await connection.query(sql, parameters: {'id': entity.id});
-          final ${_toCamelCase(targetEntity)}Repo = ${targetEntity}Repository();
-          ${_toCamelCase(targetEntity)}Repo.setConnection(connection);
-          final ${fieldName}Data = results.map((r) => ${_toCamelCase(targetEntity)}Repo.fromRow(r)).toList();
+          // Load ManyToMany relationship for $fieldName via junction table $joinTableName
+          final ${fieldName}Data = await get${_toPascalCase(fieldName)}(entity.id!);
           // Note: Requires mutable entity or copyWith pattern to set entity.$fieldName
           break;''';
     }
 
     return '';
+  }
+
+  /// Extract JoinTable info from ManyToMany annotation
+  Map<String, String> _extractJoinTableInfo(
+    ElementAnnotation annotation,
+    String ownerTableName,
+    String targetEntity,
+  ) {
+    final source = annotation.toSource();
+    final targetTable = _snakeCase(targetEntity);
+
+    // Try to extract from JoinTable annotation
+    final tableNameMatch = RegExp(
+      r'''name:\s*['"](\w+)['"]''',
+    ).firstMatch(source);
+    final joinColMatch = RegExp(
+      r'''joinColumn:\s*JoinColumn\s*\([^)]*name:\s*['"](\w+)['"]''',
+    ).firstMatch(source);
+    final inverseColMatch = RegExp(
+      r'''inverseJoinColumn:\s*JoinColumn\s*\([^)]*name:\s*['"](\w+)['"]''',
+    ).firstMatch(source);
+
+    return {
+      'tableName': tableNameMatch?.group(1) ?? '${ownerTableName}_$targetTable',
+      'joinColumn': joinColMatch?.group(1) ?? '${ownerTableName}_id',
+      'inverseColumn': inverseColMatch?.group(1) ?? '${targetTable}_id',
+    };
   }
 
   String _extractTargetEntity(ElementAnnotation annotation) {
@@ -430,17 +478,171 @@ ${cases.join('\n')}
     return match?.group(1);
   }
 
-  String? _extractJoinTableName(ElementAnnotation annotation) {
-    final source = annotation.toSource();
-    final match = RegExp(
-      r'''joinTableName:\s*['"](\w+)['"]''',
-    ).firstMatch(source);
-    return match?.group(1);
-  }
-
   String _toCamelCase(String text) {
     if (text.isEmpty) return text;
     return text[0].toLowerCase() + text.substring(1);
+  }
+
+  String _toPascalCase(String text) {
+    if (text.isEmpty) return text;
+    return text[0].toUpperCase() + text.substring(1);
+  }
+
+  /// Generate dedicated methods for ManyToMany relationships
+  String _generateManyToManyMethods(
+    String className,
+    String tableName,
+    List<Map<String, dynamic>> relationships,
+  ) {
+    final methods = <String>[];
+
+    for (final rel in relationships) {
+      final annotation = rel['annotation'];
+      if (annotation.element?.enclosingElement?.name != 'ManyToMany') continue;
+
+      final fieldName = rel['fieldName'];
+      final targetEntity = _extractTargetEntity(annotation);
+      final mappedBy = _extractMappedBy(annotation);
+
+      // Skip inverse side (mappedBy is set)
+      if (mappedBy != null) continue;
+
+      final joinTableInfo = _extractJoinTableInfo(
+        annotation,
+        tableName,
+        targetEntity,
+      );
+      final joinTableName = joinTableInfo['tableName']!;
+      final joinColumn = joinTableInfo['joinColumn']!;
+      final inverseColumn = joinTableInfo['inverseColumn']!;
+      final targetTable = _snakeCase(targetEntity);
+
+      // Generate get method for fetching related entities
+      methods.add('''
+  /// Get all ${targetEntity}s related to this $className via $joinTableName
+  Future<List<$targetEntity>> get${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id) async {
+    final sql = """
+      SELECT t.* 
+      FROM $targetTable t 
+      INNER JOIN $joinTableName jt ON t.id = jt.$inverseColumn 
+      WHERE jt.$joinColumn = @id
+    """;
+    final results = await connection.query(sql, parameters: {'id': ${_toCamelCase(className)}Id});
+    final repo = ${targetEntity}Repository();
+    repo.setConnection(connection);
+    return results.map((r) => repo.fromRow(r)).toList();
+  }
+
+  /// Add a $targetEntity to this $className's $fieldName
+  Future<void> add${_toPascalCase(_singular(fieldName))}(int ${_toCamelCase(className)}Id, int ${_toCamelCase(targetEntity)}Id) async {
+    final sql = "INSERT INTO $joinTableName ($joinColumn, $inverseColumn) VALUES (@ownerId, @targetId) ON CONFLICT DO NOTHING";
+    await connection.execute(sql, parameters: {
+      'ownerId': ${_toCamelCase(className)}Id,
+      'targetId': ${_toCamelCase(targetEntity)}Id,
+    });
+  }
+
+  /// Remove a $targetEntity from this $className's $fieldName
+  Future<void> remove${_toPascalCase(_singular(fieldName))}(int ${_toCamelCase(className)}Id, int ${_toCamelCase(targetEntity)}Id) async {
+    final sql = "DELETE FROM $joinTableName WHERE $joinColumn = @ownerId AND $inverseColumn = @targetId";
+    await connection.execute(sql, parameters: {
+      'ownerId': ${_toCamelCase(className)}Id,
+      'targetId': ${_toCamelCase(targetEntity)}Id,
+    });
+  }
+
+  /// Clear all ${targetEntity}s from this $className's $fieldName
+  Future<void> clear${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id) async {
+    final sql = "DELETE FROM $joinTableName WHERE $joinColumn = @ownerId";
+    await connection.execute(sql, parameters: {'ownerId': ${_toCamelCase(className)}Id});
+  }
+
+  /// Set the $fieldName for this $className (replaces all existing)
+  Future<void> set${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id, List<int> ${_toCamelCase(targetEntity)}Ids) async {
+    await clear${_toPascalCase(fieldName)}(${_toCamelCase(className)}Id);
+    for (final targetId in ${_toCamelCase(targetEntity)}Ids) {
+      await add${_toPascalCase(_singular(fieldName))}(${_toCamelCase(className)}Id, targetId);
+    }
+  }''');
+    }
+
+    return methods.join('\n\n');
+  }
+
+  /// Generate findWithRelations method for eager loading
+  String _generateFindWithRelationsMethod(
+    String className,
+    String tableName,
+    List<Map<String, dynamic>> relationships,
+  ) {
+    if (relationships.isEmpty) {
+      return '';
+    }
+
+    final manyToManyRels = relationships.where((rel) {
+      final annotation = rel['annotation'];
+      return annotation.element?.enclosingElement?.name == 'ManyToMany' &&
+          _extractMappedBy(annotation) == null;
+    }).toList();
+
+    if (manyToManyRels.isEmpty) {
+      return '';
+    }
+
+    final relLoaders = manyToManyRels
+        .map((rel) {
+          final fieldName = rel['fieldName'];
+          return '''
+      if (includes.contains('$fieldName')) {
+        final ${fieldName}Data = await get${_toPascalCase(fieldName)}(entity.id!);
+        relatedData['$fieldName'] = ${fieldName}Data;
+      }''';
+        })
+        .join('\n');
+
+    return '''
+  /// Find entity by ID with related data
+  /// Returns a map with 'entity' and requested relation names as keys
+  Future<Map<String, dynamic>?> findByIdWithRelations(
+    int id, {
+    List<String> includes = const [],
+  }) async {
+    final entity = await findById(id);
+    if (entity == null) return null;
+
+    final relatedData = <String, dynamic>{'entity': entity};
+$relLoaders
+    return relatedData;
+  }
+
+  /// Get all entities with related data
+  /// Returns a list of maps with 'entity' and requested relation names as keys
+  Future<List<Map<String, dynamic>>> getAllWithRelations({
+    List<String> includes = const [],
+  }) async {
+    final entities = await getAll();
+    final results = <Map<String, dynamic>>[];
+
+    for (final entity in entities) {
+      final relatedData = <String, dynamic>{'entity': entity};
+${relLoaders.replaceAll('entity.id!', 'entity.id!')}
+      results.add(relatedData);
+    }
+
+    return results;
+  }''';
+  }
+
+  /// Convert plural to singular (simple implementation)
+  String _singular(String text) {
+    if (text.endsWith('ies')) {
+      return '${text.substring(0, text.length - 3)}y';
+    } else if (text.endsWith('es')) {
+      return text.substring(0, text.length - 2);
+    } else if (text.endsWith('s')) {
+      return text.substring(0, text.length - 1);
+    }
+    return text;
   }
 }
 
