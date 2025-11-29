@@ -34,7 +34,23 @@ class Column {
   });
 }
 
-/// Id annotation for marking a field as the primary key
+/// Id annotation for marking a single field as the primary key.
+///
+/// Use this annotation on a single field to designate it as the primary key.
+/// For composite primary keys (multiple columns), use [@PrimaryKey] on the class instead.
+///
+/// **Note:** You cannot use both @Id and @PrimaryKey in the same entity.
+/// A build error will be thrown if both are used together.
+///
+/// Example:
+/// ```dart
+/// @Entity(tableName: 'users')
+/// class UserEntity {
+///   @Id()
+///   int id;
+///   String name;
+/// }
+/// ```
 class Id {
   final bool autoIncrement;
   final String? strategy; // SERIAL, UUID, IDENTITY, etc.
@@ -66,10 +82,16 @@ class Index {
   const Index({required this.columns, this.unique = false, this.name});
 }
 
-/// Primary key annotation for composite primary keys
+/// Primary key annotation for composite primary keys (multiple columns).
 ///
-/// Use this on the entity class to define a composite primary key.
+/// Use this annotation on the entity class to define a composite primary key
+/// when you need multiple columns to form the primary key.
 /// The columns must exist as fields in the entity.
+///
+/// For single-field primary keys, use [@Id] on the field instead.
+///
+/// **Note:** You cannot use both @Id and @PrimaryKey in the same entity.
+/// A build error will be thrown if both are used together.
 ///
 /// Example:
 /// ```dart

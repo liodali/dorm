@@ -206,7 +206,11 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
   }
 
   /// Validate class-level annotations (PrimaryKey, Unique, Index)
+  /// Also validates that @Id and @PrimaryKey are not used together
   void _validateClassAnnotations(ClassElement element, Set<String> fieldNames) {
+    // First, check for @Id and @PrimaryKey conflict
+    _validatePrimaryKeyAnnotations(element);
+
     for (final annotation in element.metadata.annotations) {
       final annotationName = annotation.element?.enclosingElement?.name;
 
@@ -220,6 +224,36 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
       } else if (annotationName == 'Index') {
         _validateColumnsExist(annotation, 'Index', fieldNames, element);
       }
+    }
+  }
+
+  /// Validate that @Id and @PrimaryKey annotations are not used together.
+  /// @Id is for single-field primary keys, @PrimaryKey is for composite keys.
+  void _validatePrimaryKeyAnnotations(ClassElement element) {
+    // Check for @PrimaryKey on the class
+    final hasPrimaryKeyAnnotation = element.metadata.annotations.any(
+      (a) => a.element?.enclosingElement?.name == 'PrimaryKey',
+    );
+
+    // Check for @Id on any field
+    bool hasIdAnnotation = false;
+    for (final field in element.fields) {
+      if (field.isStatic) continue;
+      if (field.metadata.annotations.any(
+        (a) => a.element?.enclosingElement?.name == 'Id',
+      )) {
+        hasIdAnnotation = true;
+        break;
+      }
+    }
+
+    if (hasPrimaryKeyAnnotation && hasIdAnnotation) {
+      throw InvalidGenerationSourceError(
+        'Cannot use both @Id and @PrimaryKey in the same entity. '
+        'Use @Id on a single field for simple primary keys, or '
+        '@PrimaryKey on the class for composite primary keys (multiple columns).',
+        element: element,
+      );
     }
   }
 

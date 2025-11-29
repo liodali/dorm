@@ -26,6 +26,9 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
         _tableNameFromClass(className!);
     final dbType = _getDatabaseType(annotation);
 
+    // Validate that @Id and @PrimaryKey are not used together
+    _validatePrimaryKeyAnnotations(element);
+
     final fields = <Map<String, dynamic>>[];
     final relationships = <Map<String, dynamic>>[];
 
@@ -114,6 +117,36 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
     return RegExp(
       '[A-Z]',
     ).allMatches(className).map((m) => m.group(0)!.toLowerCase()).join('_');
+  }
+
+  /// Validate that @Id and @PrimaryKey annotations are not used together.
+  /// @Id is for single-field primary keys, @PrimaryKey is for composite keys.
+  void _validatePrimaryKeyAnnotations(ClassElement element) {
+    // Check for @PrimaryKey on the class
+    final hasPrimaryKeyAnnotation = element.metadata.annotations.any(
+      (a) => a.element?.enclosingElement?.name == 'PrimaryKey',
+    );
+
+    // Check for @Id on any field
+    bool hasIdAnnotation = false;
+    for (final field in element.fields) {
+      if (field.isStatic) continue;
+      if (field.metadata.annotations.any(
+        (a) => a.element?.enclosingElement?.name == 'Id',
+      )) {
+        hasIdAnnotation = true;
+        break;
+      }
+    }
+
+    if (hasPrimaryKeyAnnotation && hasIdAnnotation) {
+      throw InvalidGenerationSourceError(
+        'Cannot use both @Id and @PrimaryKey in the same entity. '
+        'Use @Id on a single field for simple primary keys, or '
+        '@PrimaryKey on the class for composite primary keys (multiple columns).',
+        element: element,
+      );
+    }
   }
 
   ElementAnnotation? _getAnnotation(FieldElement field, String name) {
