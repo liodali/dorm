@@ -24,8 +24,10 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
 
     final className = element.name;
     final migrationVersion = annotation.peek('migrationVersion')?.intValue ?? 1;
-    final dbType = _getDatabaseType(annotation);
     final dbName = annotation.peek('name')?.stringValue;
+
+    // Extract DbConfig from annotation
+    final configInfo = _extractDbConfig(annotation);
 
     // Extract entity types and their schema info from annotation
     final entitiesReader = annotation.peek('entities');
@@ -76,9 +78,46 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
       className: className!,
       entities: entities,
       migrationVersion: migrationVersion,
-      dbType: dbType,
+      configInfo: configInfo,
       dbName: dbName,
       schemaHash: schemaHash,
+    );
+  }
+
+  /// Extract DbConfig from annotation
+  _DbConfigInfo? _extractDbConfig(ConstantReader annotation) {
+    final configReader = annotation.peek('config');
+    if (configReader == null || configReader.isNull) return null;
+
+    final configObj = configReader.objectValue;
+    final host = configObj.getField('host')?.toStringValue() ?? 'localhost';
+    final port = configObj.getField('port')?.toIntValue() ?? 5432;
+    final database = configObj.getField('database')?.toStringValue() ?? '';
+    final username = configObj.getField('username')?.toStringValue();
+    final password = configObj.getField('password')?.toStringValue();
+    final ssl = configObj.getField('ssl')?.toBoolValue() ?? false;
+
+    // Get dbType from config
+    String dbType = 'postgresql';
+    final dbTypeField = configObj.getField('dbType');
+    if (dbTypeField != null) {
+      final index = dbTypeField.getField('index')?.toIntValue();
+      if (index == 0)
+        dbType = 'postgresql';
+      else if (index == 1)
+        dbType = 'mysql';
+      else if (index == 2)
+        dbType = 'sqlite';
+    }
+
+    return _DbConfigInfo(
+      host: host,
+      port: port,
+      database: database,
+      username: username,
+      password: password,
+      dbType: dbType,
+      ssl: ssl,
     );
   }
 
@@ -182,22 +221,11 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     return digest.toString();
   }
 
-  String _getDatabaseType(ConstantReader annotation) {
-    final dbTypeValue = annotation.peek('dbType')?.objectValue;
-    if (dbTypeValue != null) {
-      final index = dbTypeValue.getField('index')?.toIntValue();
-      if (index == 0) return 'postgresql';
-      if (index == 1) return 'mysql';
-      if (index == 2) return 'sqlite';
-    }
-    return 'postgresql';
-  }
-
   String _generateDbCode({
     required String className,
     required List<_EntityInfo> entities,
     required int migrationVersion,
-    required String dbType,
+    _DbConfigInfo? configInfo,
     String? dbName,
     required String schemaHash,
   }) {
@@ -208,6 +236,11 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     buffer.writeln('// Migration version: $migrationVersion');
     buffer.writeln('// Schema hash: $schemaHash');
     buffer.writeln();
+
+    // Generate default config if provided in annotation
+    if (configInfo != null) {
+      buffer.writeln(_generateDefaultConfig(className, configInfo));
+    }
 
     // Generate database schema (linked to database, not entity)
     buffer.writeln(_generateDatabaseSchema(className, entities));
@@ -225,10 +258,40 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
         entities,
         migrationVersion,
         schemaHash,
+        configInfo,
       ),
     );
 
     return buffer.toString();
+  }
+
+  /// Generate default DatabaseConfig from annotation
+  String _generateDefaultConfig(String className, _DbConfigInfo config) {
+    final configMethod = config.dbType == 'sqlite'
+        ? 'DatabaseConfig.sqlite'
+        : config.dbType == 'mysql'
+        ? 'DatabaseConfig.mysql'
+        : 'DatabaseConfig.postgresql';
+
+    if (config.dbType == 'sqlite') {
+      return '''
+/// Default database configuration from @Db annotation
+DatabaseConfig _${_toCamelCase(className)}DefaultConfig() => $configMethod(
+  path: '${config.database}',
+);
+''';
+    }
+
+    return '''
+/// Default database configuration from @Db annotation
+DatabaseConfig _${_toCamelCase(className)}DefaultConfig() => $configMethod(
+  host: '${config.host}',
+  port: ${config.port},
+  database: '${config.database}',
+  ${config.username != null ? "username: '${config.username}'," : ''}
+  ${config.password != null ? "password: '${config.password}'," : ''}
+);
+''';
   }
 
   /// Generate database schema definition
@@ -318,8 +381,11 @@ $repoGetters
     List<_EntityInfo> entities,
     int migrationVersion,
     String schemaHash,
+    _DbConfigInfo? configInfo,
   ) {
     final schemaListVar = '${_toCamelCase(dbClassName)}Schemas';
+    final hasConfig = configInfo != null;
+    final defaultConfigFunc = '_${_toCamelCase(dbClassName)}DefaultConfig';
 
     return '''
 // Database lifecycle extension for $dbClassName
@@ -330,7 +396,42 @@ extension ${dbClassName}Lifecycle on $dbClassName {
   /// Schema hash for detecting changes
   static const String schemaHash = '$schemaHash';
 
-  /// Initialize database: connect, run migrations if needed, validate schema
+  /// Get all schemas for this database
+  List<DatabaseSchema> get schemas => $schemaListVar;
+
+  /// Setup database: connect (using config from annotation or parameter), run migrations, validate schema
+  /// 
+  /// [config] - Optional DatabaseConfig, uses annotation config if not provided
+  /// [migrations] - List of migrations to run (sorted by version)
+  /// [validateSchema] - If true, validates schema matches database
+  /// Throws [StateError] if schema changed but migration version not bumped
+  Future<void> setup({
+    DatabaseConfig? config,
+    List<DatabaseMigration> migrations = const [],
+    bool validateSchema = true,
+  }) async {
+    // Use provided config or default from annotation
+    final effectiveConfig = config ${hasConfig ? '?? $defaultConfigFunc()' : ''};
+    ${hasConfig ? '' : 'if (effectiveConfig == null) { throw StateError("No DatabaseConfig provided and no default config in @Db annotation"); }'}
+    
+    // Initialize connection if not already connected
+    await init(effectiveConfig);
+    
+    // Run migrations and validate schema
+    await initializeDatabase(
+      migrations: migrations,
+      validateSchema: validateSchema,
+    );
+  }
+
+  /// Initialize database connection
+  Future<void> init(DatabaseConfig${hasConfig ? '?' : ''} config) async {
+    if (_connection != null) return;
+    ${hasConfig ? 'final effectiveConfig = config ?? $defaultConfigFunc();' : 'final effectiveConfig = config;'}
+    _connection = await DatabaseFactory.createConnection(effectiveConfig);
+  }
+
+  /// Initialize database: run migrations if needed, validate schema
   /// 
   /// [migrations] - List of migrations to run (sorted by version)
   /// [validateSchema] - If true, validates schema matches database
@@ -341,7 +442,7 @@ extension ${dbClassName}Lifecycle on $dbClassName {
   }) async {
     // Ensure connection is established
     if (connection == null) {
-      throw StateError('Database connection not established. Call init() first.');
+      throw StateError('Database connection not established. Call init() or setup() first.');
     }
 
     // Run pending migrations
@@ -402,6 +503,38 @@ extension ${dbClassName}Lifecycle on $dbClassName {
     return differences;
   }
 
+  /// Retrieve schema from database for a table
+  Future<DatabaseSchema?> getSchemaFromDatabase(String tableName) async {
+    if (connection == null) return null;
+    
+    final tableExists = await _tableExists(tableName);
+    if (!tableExists) return null;
+    
+    final sql = "SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = @table ORDER BY ordinal_position";
+    final result = await connection!.query(sql, parameters: {'table': tableName});
+    
+    final columns = result.map((row) => ColumnSchema(
+      name: row['column_name'] as String,
+      type: row['data_type'] as String,
+      nullable: row['is_nullable'] == 'YES',
+      primaryKey: false, // Would need additional query to determine
+    )).toList();
+    
+    return DatabaseSchema(tableName: tableName, columns: columns);
+  }
+
+  /// Retrieve all schemas from database
+  Future<List<DatabaseSchema>> getAllSchemasFromDatabase() async {
+    final schemas = <DatabaseSchema>[];
+    for (final schema in $schemaListVar) {
+      final dbSchema = await getSchemaFromDatabase(schema.tableName);
+      if (dbSchema != null) {
+        schemas.add(dbSchema);
+      }
+    }
+    return schemas;
+  }
+
   /// Check if table exists in database
   Future<bool> _tableExists(String tableName) async {
     final sql = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = @table)";
@@ -459,6 +592,12 @@ extension ${dbClassName}Lifecycle on $dbClassName {
     final appliedVersion = await getAppliedMigrationVersion();
     return migrations.any((m) => m.version > appliedVersion);
   }
+
+  /// Close database connection
+  Future<void> close() async {
+    await _connection?.close();
+    _connection = null;
+  }
 }
 ''';
   }
@@ -496,6 +635,26 @@ class _ColumnInfo {
     required this.sqlType,
     required this.isNullable,
     required this.isPrimaryKey,
+  });
+}
+
+class _DbConfigInfo {
+  final String host;
+  final int port;
+  final String database;
+  final String? username;
+  final String? password;
+  final String dbType;
+  final bool ssl;
+
+  _DbConfigInfo({
+    required this.host,
+    required this.port,
+    required this.database,
+    this.username,
+    this.password,
+    required this.dbType,
+    required this.ssl,
   });
 }
 

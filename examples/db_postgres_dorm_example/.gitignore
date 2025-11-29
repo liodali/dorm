@@ -4,3 +4,4 @@
 **/*.orm.g.dart
 **/*.db.g.dart
 **/*.schema.g.dart
+**/migrations/*.dart
