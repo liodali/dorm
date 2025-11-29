@@ -137,6 +137,14 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
     String sourceFilePath,
     Map<String, bool> constructorParams,
   ) {
+    // Find primary key field
+    final primaryKeyField = fields.firstWhereOrNull(
+      (f) => f['isPrimaryKey'] == true,
+    );
+    final primaryKeyColumn = primaryKeyField != null
+        ? primaryKeyField['columnName'] as String
+        : 'id';
+
     final fromRowMappings = fields
         .map((f) {
           final fieldName = f['name'];
@@ -191,7 +199,11 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
 part of '$entityFileName';
 
 class ${className}Repository extends Repository<$className> {
-  ${className}Repository() : super('$tableName');
+  ${className}Repository() : super(
+    '$tableName',
+    primaryKeyColumn: '$primaryKeyColumn',
+    autoIncrementPrimaryKey: true,
+  );
 
   @override
   $className fromRow(Map<String, dynamic> row) {

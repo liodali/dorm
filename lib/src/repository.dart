@@ -5,9 +5,20 @@ import 'package:dorm/src/stored_procedure.dart';
 
 abstract class Repository<T> {
   final String tableName;
+
+  /// Primary key column name (default: 'id')
+  final String primaryKeyColumn;
+
+  /// Whether the primary key is auto-generated (SERIAL/AUTO_INCREMENT)
+  final bool autoIncrementPrimaryKey;
+
   late DatabaseConnection connection;
 
-  Repository(this.tableName);
+  Repository(
+    this.tableName, {
+    this.primaryKeyColumn = 'id',
+    this.autoIncrementPrimaryKey = true,
+  });
 
   /// Convert database row to entity
   T fromRow(Map<String, dynamic> row);
@@ -21,17 +32,25 @@ abstract class Repository<T> {
   }
 
   /// Save entity (INSERT only)
+  /// Skips primary key column if autoIncrementPrimaryKey is true and value is null
   Future<T> save(T entity) async {
     final row = toRow(entity);
-    final columns = row.keys.join(', ');
-    final placeholders = row.keys.map((k) => '@$k').join(', ');
+
+    // Filter out auto-increment primary key if value is null
+    final insertRow = Map<String, dynamic>.from(row);
+    if (autoIncrementPrimaryKey && insertRow[primaryKeyColumn] == null) {
+      insertRow.remove(primaryKeyColumn);
+    }
+
+    final columns = insertRow.keys.join(', ');
+    final placeholders = insertRow.keys.map((k) => '@$k').join(', ');
 
     final sql =
         'INSERT INTO $tableName ($columns) VALUES ($placeholders) RETURNING *';
 
     final result = await connection.query(
       sql,
-      parameters: row,
+      parameters: insertRow,
     );
     if (result.isEmpty) throw Exception('Save failed');
 
@@ -40,7 +59,7 @@ abstract class Repository<T> {
 
   /// Find by primary key
   Future<T?> findById(dynamic id) async {
-    final sql = 'SELECT * FROM $tableName WHERE id = @id';
+    final sql = 'SELECT * FROM $tableName WHERE $primaryKeyColumn = @id';
     final results = await executeQuery(sql, {'id': id}, []);
     return results.isNotEmpty ? results.first : null;
   }
@@ -52,14 +71,14 @@ abstract class Repository<T> {
 
   /// Delete entity by ID
   Future<void> delete(dynamic id) async {
-    final sql = 'DELETE FROM $tableName WHERE id = @id';
+    final sql = 'DELETE FROM $tableName WHERE $primaryKeyColumn = @id';
     await connection.execute(sql, parameters: {'id': id});
   }
 
   /// Delete entity
   Future<void> deleteEntity(T entity) async {
     final row = toRow(entity);
-    final id = row['id'];
+    final id = row[primaryKeyColumn];
     await delete(id);
   }
 
