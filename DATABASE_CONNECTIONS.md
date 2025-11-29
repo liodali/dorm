@@ -6,9 +6,11 @@ This document explains how to use the different database connections in DORM.
 
 DORM provides a unified interface for connecting to multiple database systems:
 
-- **PostgreSQL** - Fully implemented and production ready
-- **SQLite3** - Fully implemented and production ready
-- **MySQL** - Structure ready, requires package installation
+| Database   | Status               | Package Required   | Notes            |
+| ---------- | -------------------- | ------------------ | ---------------- |
+| PostgreSQL | ✅ Fully Implemented | `postgres: ^3.1.0` | Production ready |
+| SQLite3    | ✅ Fully Implemented | `sqlite3: ^3.0.1`  | Production ready |
+| MySQL      | 🔧 Structure Ready   | `mysql1: ^0.20.0`  | Coming soon      |
 
 ## Connection Architecture
 
@@ -16,25 +18,114 @@ All database connections implement the `DatabaseConnection` interface:
 
 ```dart
 abstract class DatabaseConnection {
-  Future<List<Map<String, dynamic>>> query(String sql, {Map<String, dynamic>? parameters});
+  /// Execute query and return mapped results as List<Map>
+  Future<List<Map<String, dynamic>>> query(
+    String sql, {
+    Map<String, dynamic>? parameters,
+  });
+
+  /// Execute non-query (INSERT, UPDATE, DELETE) and return affected rows
   Future<int> execute(String sql, {Map<String, dynamic>? parameters});
-  Future<List<List<dynamic>>> rawQuery(String sql, {Map<String, dynamic>? parameters});
+
+  /// Execute query and return raw results as List<List>
+  Future<List<List<dynamic>>> rawQuery(
+    String sql, {
+    Map<String, dynamic>? parameters,
+  });
+
+  /// Begin a database transaction
   Future<DatabaseTransaction> beginTransaction();
+
+  /// Close the connection
   Future<void> close();
+
+  /// Check if connection is open
   bool get isOpen;
+
+  /// Get the database type
   DatabaseType get databaseType;
 }
 ```
+
+### DatabaseTransaction Interface
+
+```dart
+abstract class DatabaseTransaction {
+  Future<List<Map<String, dynamic>>> query(String sql, {Map<String, dynamic>? parameters});
+  Future<int> execute(String sql, {Map<String, dynamic>? parameters});
+  Future<void> commit();
+  Future<void> rollback();
+}
+```
+
+### DatabaseType Enum
+
+```dart
+enum DatabaseType { postgresql, mysql, sqlite }
+```
+
+## DatabaseConfig
+
+Use `DatabaseConfig` to configure database connections:
+
+```dart
+class DatabaseConfig {
+  final DatabaseType type;
+  final String? host;
+  final int? port;
+  final String? database;
+  final String? username;
+  final String? password;
+  final String? filePath;      // For SQLite
+  final bool useSSL;
+  final int maxConnections;
+  final Duration connectionTimeout;
+  final Map<String, dynamic>? additionalParams;
+}
+```
+
+### Factory Constructors
+
+```dart
+// PostgreSQL
+DatabaseConfig.postgresql({
+  required String host,
+  required int port,
+  required String database,
+  required String username,
+  required String password,
+  bool useSSL = false,
+  int maxConnections = 10,
+  Duration connectionTimeout = const Duration(seconds: 30),
+})
+
+// MySQL
+DatabaseConfig.mysql({
+  required String host,
+  required int port,
+  required String database,
+  required String username,
+  required String password,
+  bool useSSL = false,
+  int maxConnections = 10,
+  Duration connectionTimeout = const Duration(seconds: 30),
+})
+
+// SQLite
+DatabaseConfig.sqlite({required String filePath})
+```
+
+---
 
 ## PostgreSQL Connection
 
 ### Setup
 
-Already included in `pubspec.yaml`:
+Add to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  postgres: ^2.6.0
+  postgres: ^3.1.0
 ```
 
 ### Usage
@@ -369,10 +460,61 @@ try {
 
 ## Examples
 
-See the `/example` folder for complete working examples:
+See the `/examples` folder for complete working examples:
 
-- `dorm_example.dart` - Full ORM usage with PostgreSQL
-- `database_connections_example.dart` - All database connection types
+- `db_postgres_dorm_example/` - Full ORM usage with PostgreSQL
+- `example/database_connections_example.dart` - All database connection types
+
+---
+
+## Using with @Db Annotation
+
+When using the `@Db` annotation, you can configure the connection directly:
+
+```dart
+@Db(
+  entities: [UserEntity, PostEntity],
+  migrationVersion: 1,
+  config: DbConfig.postgresql(
+    host: 'localhost',
+    port: 5432,
+    database: 'mydb',
+    username: 'user',
+    password: 'password',
+  ),
+  name: 'mydb',
+)
+class Database {
+  DatabaseConnection? _connection;
+  DatabaseConnection? get connection => _connection;
+}
+```
+
+Then use the generated `setup()` or `init()` methods:
+
+```dart
+final db = Database();
+
+// Option 1: Full setup with migrations
+await db.setup(
+  migrations: [Migration001()],
+  validateSchema: true,
+);
+
+// Option 2: Just initialize connection
+await db.init();
+
+// Option 3: Override config at runtime
+await db.init(DatabaseConfig.postgresql(
+  host: 'production-host',
+  port: 5432,
+  database: 'prod_db',
+  username: 'prod_user',
+  password: 'prod_password',
+));
+```
+
+---
 
 ## Troubleshooting
 
@@ -395,3 +537,28 @@ See the `/example` folder for complete working examples:
 - Check credentials and database name
 - Ensure port 3306 is accessible
 - Uncomment all implementation code in `mysql_connection.dart`
+
+---
+
+## API Reference
+
+### DatabaseConnection Methods
+
+| Method                        | Return Type                          | Description                    |
+| ----------------------------- | ------------------------------------ | ------------------------------ |
+| `query(sql, {parameters})`    | `Future<List<Map<String, dynamic>>>` | Execute SELECT query           |
+| `execute(sql, {parameters})`  | `Future<int>`                        | Execute INSERT/UPDATE/DELETE   |
+| `rawQuery(sql, {parameters})` | `Future<List<List<dynamic>>>`        | Execute query with raw results |
+| `beginTransaction()`          | `Future<DatabaseTransaction>`        | Start a transaction            |
+| `close()`                     | `Future<void>`                       | Close the connection           |
+| `isOpen`                      | `bool`                               | Check if connection is open    |
+| `databaseType`                | `DatabaseType`                       | Get the database type          |
+
+### DatabaseTransaction Methods
+
+| Method                       | Return Type                          | Description                      |
+| ---------------------------- | ------------------------------------ | -------------------------------- |
+| `query(sql, {parameters})`   | `Future<List<Map<String, dynamic>>>` | Execute query in transaction     |
+| `execute(sql, {parameters})` | `Future<int>`                        | Execute statement in transaction |
+| `commit()`                   | `Future<void>`                       | Commit the transaction           |
+| `rollback()`                 | `Future<void>`                       | Rollback the transaction         |

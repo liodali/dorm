@@ -7,8 +7,8 @@ A powerful ORM for Dart inspired by Hibernate (Java) and Entity Framework (C#) w
 ✨ **Multi-Database Support**
 
 - PostgreSQL (fully implemented)
+- SQLite (fully implemented)
 - MySQL (structure ready)
-- SQLite (structure ready)
 
 🔥 **LINQ-Style Queries**
 
@@ -30,6 +30,41 @@ A powerful ORM for Dart inspired by Hibernate (Java) and Entity Framework (C#) w
 - Automatic code generation
 - Database migrations
 - Schema validation & change detection
+
+---
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Public API Reference](#public-api-reference)
+  - [Annotations](#annotations)
+  - [Repository](#repository-api)
+  - [QueryBuilder](#querybuilder-api)
+  - [DatabaseConnection](#databaseconnection-api)
+  - [Schema](#schema-api)
+  - [Migrations](#migrations-api)
+  - [Raw Queries & Stored Procedures](#raw-queries--stored-procedures)
+- [Database Support](#database-support-status)
+- [Examples](#examples)
+
+---
+
+## Installation
+
+Add DORM to your `pubspec.yaml`:
+
+```yaml
+dependencies:
+  dorm:
+    git:
+      url: https://github.com/liodali/dorm.git
+  postgres: ^3.1.0 # For PostgreSQL
+  sqlite3: ^3.0.1 # For SQLite
+
+dev_dependencies:
+  build_runner: ^2.4.0
+```
 
 ---
 
@@ -118,6 +153,10 @@ void main() async {
   await db.close();
 }
 ```
+
+---
+
+## Public API Reference
 
 ---
 
@@ -466,15 +505,147 @@ class Migration001 extends DatabaseMigration {
 
 All helper methods automatically check if the object exists and skip if it does:
 
-| Method                | Description                       |
-| --------------------- | --------------------------------- |
-| `createTable(schema)` | Creates table with IF NOT EXISTS  |
-| `dropTable(name)`     | Drops table with IF EXISTS        |
-| `tableExists(name)`   | Returns true if table exists      |
-| `createIndex(...)`    | Creates index, skips if exists    |
-| `dropIndex(name)`     | Drops index, skips if not exists  |
-| `addColumn(...)`      | Adds column, skips if exists      |
-| `dropColumn(...)`     | Drops column, skips if not exists |
+| Method        | Signature                                                               | Description                       |
+| ------------- | ----------------------------------------------------------------------- | --------------------------------- |
+| `createTable` | `Future<void> createTable(DatabaseSchema schema)`                       | Creates table with IF NOT EXISTS  |
+| `dropTable`   | `Future<void> dropTable(String tableName)`                              | Drops table with IF EXISTS        |
+| `tableExists` | `Future<bool> tableExists(String tableName)`                            | Returns true if table exists      |
+| `createIndex` | `Future<void> createIndex({name, table, columns, unique})`              | Creates index, skips if exists    |
+| `dropIndex`   | `Future<void> dropIndex(String name)`                                   | Drops index, skips if not exists  |
+| `addColumn`   | `Future<void> addColumn({table, column, type, nullable, defaultValue})` | Adds column, skips if exists      |
+| `dropColumn`  | `Future<void> dropColumn({table, column})`                              | Drops column, skips if not exists |
+
+### Migration Types
+
+DORM provides several migration types for different use cases:
+
+#### 1. Custom Migration (Extend DatabaseMigration)
+
+```dart
+class Migration001 extends DatabaseMigration {
+  @override
+  int get version => 1;
+
+  @override
+  String get description => 'Create users table';
+
+  @override
+  Future<void> up() async {
+    await createTable(DatabaseSchema(...));
+  }
+
+  @override
+  Future<void> down() async {
+    await dropTable('users');
+  }
+}
+```
+
+#### 2. RawSqlMigration
+
+For simple SQL-based migrations:
+
+```dart
+final migration = RawSqlMigration(
+  version: 2,
+  description: 'Add status column to users',
+  upSql: "ALTER TABLE users ADD COLUMN status VARCHAR(50) DEFAULT 'active';",
+  downSql: 'ALTER TABLE users DROP COLUMN status;',
+);
+
+// Or with multiple statements
+final migration = RawSqlMigration(
+  version: 3,
+  description: 'Add multiple columns',
+  upSqlStatements: [
+    'ALTER TABLE users ADD COLUMN age INTEGER;',
+    'ALTER TABLE users ADD COLUMN phone VARCHAR(20);',
+  ],
+  downSqlStatements: [
+    'ALTER TABLE users DROP COLUMN phone;',
+    'ALTER TABLE users DROP COLUMN age;',
+  ],
+);
+```
+
+#### 3. ManualMigration
+
+For migrations with custom logic using callbacks:
+
+```dart
+final migration = ManualMigration(
+  version: 4,
+  description: 'Seed initial data',
+  onUp: (connection, schemaManager) async {
+    await connection.execute(
+      "INSERT INTO users (name, email) VALUES ('Admin', 'admin@example.com')",
+    );
+  },
+  onDown: (connection, schemaManager) async {
+    await connection.execute(
+      "DELETE FROM users WHERE email = 'admin@example.com'",
+    );
+  },
+);
+```
+
+#### 4. CompositeMigration
+
+Combine multiple migrations into one:
+
+```dart
+final migration = CompositeMigration(
+  version: 5,
+  description: 'Add user profile fields',
+  steps: [
+    RawSqlMigration(
+      version: 0, // ignored in composite
+      description: 'Add bio column',
+      upSql: 'ALTER TABLE users ADD COLUMN bio TEXT;',
+      downSql: 'ALTER TABLE users DROP COLUMN bio;',
+    ),
+    RawSqlMigration(
+      version: 0,
+      description: 'Add avatar column',
+      upSql: 'ALTER TABLE users ADD COLUMN avatar_url VARCHAR(500);',
+      downSql: 'ALTER TABLE users DROP COLUMN avatar_url;',
+    ),
+  ],
+);
+```
+
+### MigrationRunner
+
+Use `MigrationRunner` to execute migrations:
+
+```dart
+final runner = MigrationRunner(connection, [
+  Migration001(),
+  Migration002(),
+  migration3,  // RawSqlMigration
+  migration4,  // ManualMigration
+]);
+
+// Run all pending migrations
+await runner.runMigrations();
+
+// Rollback the last migration
+await runner.rollbackLast();
+
+// Run ad-hoc SQL (not tracked)
+await runner.runSql('UPDATE users SET status = @status', parameters: {'status': 'active'});
+
+// Run multiple SQL statements (not tracked)
+await runner.runSqlStatements([
+  'CREATE INDEX idx_users_status ON users(status);',
+  'CREATE INDEX idx_users_created ON users(created_at);',
+]);
+
+// Run manual callback (not tracked)
+await runner.runManual((connection, schemaManager) async {
+  // Custom logic
+});
+```
 
 ### Running Migrations
 
@@ -487,7 +658,7 @@ await db.setup(
   migrations: [
     Migration001(),
     Migration002(),
-    Migration003(),
+    RawSqlMigration(version: 3, description: '...', upSql: '...'),
   ],
   autoCreateSchema: true,   // Creates tables from schema (default: true)
   validateSchema: true,     // Validates schema matches code (default: true)
@@ -533,6 +704,14 @@ DORM automatically:
 // Column "new_column" missing in table "users"
 // Please increment migrationVersion in @Db annotation and create a migration.
 ```
+
+### Migration Best Practices
+
+1. **Always test migrations** on a copy of production data before deploying
+2. **Never delete applied migrations** in production
+3. **Keep `down()` methods functional** for rollback capability
+4. **Use timestamp-based versions** to avoid conflicts in team environments
+5. **Bump `migrationVersion`** in `@Db` annotation when schema changes
 
 ---
 
@@ -797,13 +976,513 @@ extension DatabaseLifecycle on Database {
 
 ---
 
+## Repository API
+
+The `Repository<T>` class provides CRUD operations for entities.
+
+### Constructor Parameters
+
+```dart
+Repository(
+  String tableName, {
+  String primaryKeyColumn = 'id',
+  bool autoIncrementPrimaryKey = true,
+})
+```
+
+### Core Methods
+
+| Method                                   | Return Type       | Description                                           |
+| ---------------------------------------- | ----------------- | ----------------------------------------------------- |
+| `save(T entity)`                         | `Future<T>`       | Insert entity, returns saved entity with generated ID |
+| `findById(dynamic id)`                   | `Future<T?>`      | Find entity by primary key                            |
+| `getAll()`                               | `Future<List<T>>` | Get all entities                                      |
+| `delete(dynamic id)`                     | `Future<void>`    | Delete by primary key                                 |
+| `deleteEntity(T entity)`                 | `Future<void>`    | Delete entity instance                                |
+| `query()`                                | `QueryBuilder<T>` | Create LINQ-style query builder                       |
+| `setConnection(DatabaseConnection conn)` | `void`            | Set database connection                               |
+
+### Abstract Methods (Implemented by Generated Code)
+
+```dart
+/// Convert database row to entity
+T fromRow(Map<String, dynamic> row);
+
+/// Convert entity to database row
+Map<String, dynamic> toRow(T entity);
+
+/// Load relationships for eager loading
+Future<void> loadRelationships(T entity, List<String> includes);
+```
+
+### Raw Query Methods
+
+```dart
+/// Execute raw SQL query
+RawQuery executeRawQuery(String sql, [Map<String, dynamic>? parameters]);
+
+/// Execute stored procedure
+StoredProcedure executeProcedure(String name, {List<dynamic>? parameters});
+```
+
+---
+
+## QueryBuilder API
+
+The `QueryBuilder<T>` class provides LINQ-style fluent query building.
+
+### Query Methods
+
+| Method                                                    | Description                        |
+| --------------------------------------------------------- | ---------------------------------- |
+| `select(Function(SelectBuilder) builder)`                 | Select specific columns            |
+| `where(String condition, [Map<String, dynamic>? params])` | WHERE clause with parameters       |
+| `whereSimple(String column, dynamic value)`               | Simple equality WHERE              |
+| `whereIn(String column, List<dynamic> values)`            | WHERE IN clause                    |
+| `whereNotIn(String column, List<dynamic> values)`         | WHERE NOT IN clause                |
+| `whereBetween(String column, dynamic from, dynamic to)`   | BETWEEN clause                     |
+| `whereLike(String column, String pattern)`                | LIKE clause                        |
+| `whereILike(String column, String pattern)`               | Case-insensitive LIKE (PostgreSQL) |
+| `whereNull(String column)`                                | IS NULL clause                     |
+| `whereNotNull(String column)`                             | IS NOT NULL clause                 |
+
+### Join Methods
+
+| Method                                      | Description             |
+| ------------------------------------------- | ----------------------- |
+| `innerJoin(String table, String condition)` | INNER JOIN              |
+| `leftJoin(String table, String condition)`  | LEFT JOIN               |
+| `rightJoin(String table, String condition)` | RIGHT JOIN              |
+| `include(String relationshipName)`          | Eager load relationship |
+
+### Ordering & Pagination
+
+| Method                             | Description     |
+| ---------------------------------- | --------------- |
+| `orderBy(String column)`           | ORDER BY ASC    |
+| `orderByDescending(String column)` | ORDER BY DESC   |
+| `skip(int count)`                  | OFFSET          |
+| `take(int count)`                  | LIMIT           |
+| `distinct()`                       | SELECT DISTINCT |
+
+### Execution Methods
+
+| Method               | Return Type       | Description                            |
+| -------------------- | ----------------- | -------------------------------------- |
+| `toList()`           | `Future<List<T>>` | Execute and get all results            |
+| `firstOrDefault()`   | `Future<T?>`      | Get first result or null               |
+| `first()`            | `Future<T>`       | Get first result (throws if not found) |
+| `countSql()`         | `Future<int>`     | Count matching records                 |
+| `any()`              | `Future<bool>`    | Check if any records match             |
+| `max(String column)` | `Future<num?>`    | Get maximum value                      |
+| `min(String column)` | `Future<num?>`    | Get minimum value                      |
+| `sum(String column)` | `Future<num?>`    | Get sum of column                      |
+| `avg(String column)` | `Future<num?>`    | Get average of column                  |
+| `toSql()`            | `String`          | Get generated SQL (for debugging)      |
+
+### SelectBuilder
+
+Used with the `select()` method to specify columns:
+
+```dart
+class SelectBuilder {
+  void column(String name);
+  void columns(List<String> names);
+}
+```
+
+### Usage Examples
+
+```dart
+// Select specific columns
+final users = await userRepo
+    .query()
+    .select((s) => s.columns(['id', 'name', 'email']))
+    .toList();
+
+// Complex query with multiple conditions
+final users = await userRepo
+    .query()
+    .where('status = @status', {'status': 'active'})
+    .whereNotNull('email')
+    .whereLike('name', '%John%')
+    .orderByDescending('created_at')
+    .skip(10)
+    .take(20)
+    .toList();
+
+// Aggregations
+final totalSales = await orderRepo.query().sum('amount');
+final avgPrice = await productRepo.query().avg('price');
+final maxAge = await userRepo.query().max('age');
+
+// Check existence
+final hasAdmins = await userRepo
+    .query()
+    .where('role = @role', {'role': 'admin'})
+    .any();
+```
+
+---
+
+## DatabaseConnection API
+
+The `DatabaseConnection` abstract class defines the interface for all database connections.
+
+### Interface Methods
+
+```dart
+abstract class DatabaseConnection {
+  /// Execute query and return mapped results
+  Future<List<Map<String, dynamic>>> query(
+    String sql, {
+    Map<String, dynamic>? parameters,
+  });
+
+  /// Execute non-query (INSERT, UPDATE, DELETE)
+  Future<int> execute(String sql, {Map<String, dynamic>? parameters});
+
+  /// Execute query and return raw results
+  Future<List<List<dynamic>>> rawQuery(
+    String sql, {
+    Map<String, dynamic>? parameters,
+  });
+
+  /// Begin a transaction
+  Future<DatabaseTransaction> beginTransaction();
+
+  /// Close the connection
+  Future<void> close();
+
+  /// Check if connection is open
+  bool get isOpen;
+
+  /// Get database type
+  DatabaseType get databaseType;
+}
+```
+
+### DatabaseTransaction Interface
+
+```dart
+abstract class DatabaseTransaction {
+  Future<List<Map<String, dynamic>>> query(String sql, {Map<String, dynamic>? parameters});
+  Future<int> execute(String sql, {Map<String, dynamic>? parameters});
+  Future<void> commit();
+  Future<void> rollback();
+}
+```
+
+### DatabaseConfig Factory Methods
+
+```dart
+// PostgreSQL
+DatabaseConfig.postgresql({
+  required String host,
+  required int port,
+  required String database,
+  required String username,
+  required String password,
+  bool useSSL = false,
+  int maxConnections = 10,
+  Duration connectionTimeout = const Duration(seconds: 30),
+})
+
+// MySQL
+DatabaseConfig.mysql({
+  required String host,
+  required int port,
+  required String database,
+  required String username,
+  required String password,
+  bool useSSL = false,
+  int maxConnections = 10,
+  Duration connectionTimeout = const Duration(seconds: 30),
+})
+
+// SQLite
+DatabaseConfig.sqlite({required String filePath})
+```
+
+### DatabaseType Enum
+
+```dart
+enum DatabaseType { postgresql, mysql, sqlite }
+```
+
+---
+
+## Schema API
+
+### DatabaseSchema
+
+```dart
+class DatabaseSchema {
+  final String tableName;
+  final List<dynamic> columns;
+  final List<ForeignKey>? foreignKeys;
+  final List<IndexSchema>? indexes;
+  final List<String>? primaryKeyColumns;
+  final List<UniqueConstraint>? uniqueConstraints;
+  final List<CheckConstraint>? checkConstraints;
+
+  const DatabaseSchema({
+    required this.tableName,
+    required this.columns,
+    this.foreignKeys,
+    this.indexes,
+    this.primaryKeyColumns,
+    this.uniqueConstraints,
+    this.checkConstraints,
+  });
+}
+```
+
+### ColumnSchema
+
+```dart
+class ColumnSchema {
+  final String name;
+  final String type;
+  final bool nullable;
+  final bool primaryKey;
+  final bool unique;
+  final String? defaultValue;
+  final bool autoIncrement;
+
+  const ColumnSchema({
+    required this.name,
+    required this.type,
+    this.nullable = true,
+    this.primaryKey = false,
+    this.unique = false,
+    this.defaultValue,
+    this.autoIncrement = false,
+  });
+}
+```
+
+### ForeignKey
+
+```dart
+class ForeignKey {
+  final String column;
+  final String referencedTable;
+  final String referencedColumn;
+  final ForeignKeyAction? onDelete;
+  final ForeignKeyAction? onUpdate;
+  final String? name;
+
+  const ForeignKey({
+    required this.column,
+    required this.referencedTable,
+    required this.referencedColumn,
+    this.onDelete,
+    this.onUpdate,
+    this.name,
+  });
+}
+
+enum ForeignKeyAction { cascade, restrict, setNull, setDefault, noAction }
+```
+
+### Schema Extension Methods
+
+```dart
+extension DatabaseSchemaToSql on DatabaseSchema {
+  /// Generate CREATE TABLE SQL
+  String toCreateTableSql(DatabaseType dbType);
+
+  /// Generate CREATE INDEX SQL statements
+  List<String> toCreateIndexSql(DatabaseType dbType);
+
+  /// Generate DROP TABLE SQL
+  String toDropTableSql(DatabaseType dbType);
+
+  /// Generate all SQL statements
+  List<String> toAllSql(DatabaseType dbType);
+}
+```
+
+### SchemaManager
+
+```dart
+class SchemaManager {
+  SchemaManager(DatabaseConnection connection);
+
+  Future<bool> createTable(DatabaseSchema schema);
+  Future<void> createTables(List<DatabaseSchema> schemas);
+  Future<void> dropTable(DatabaseSchema schema);
+  Future<bool> tableExists(String tableName);
+  Future<bool> indexExists(String indexName, String tableName);
+  Future<List<String>> getTableNames();
+}
+```
+
+---
+
+## Migrations API
+
+### DatabaseMigration Abstract Class
+
+```dart
+abstract class DatabaseMigration {
+  int get version;
+  String get description;
+  DatabaseType get dbType;
+
+  void setConnection(DatabaseConnection conn);
+
+  /// Migration up - create/modify schema
+  Future<void> up();
+
+  /// Migration down - rollback schema
+  Future<void> down();
+
+  // Helper methods
+  Future<void> createTable(DatabaseSchema schema);
+  Future<void> dropTable(String tableName);
+  Future<bool> tableExists(String tableName);
+  Future<void> createIndex({
+    required String name,
+    required String table,
+    required List<String> columns,
+    bool unique = false,
+  });
+  Future<void> dropIndex(String name);
+  Future<void> addColumn({
+    required String table,
+    required String column,
+    required String type,
+    bool nullable = true,
+    String? defaultValue,
+  });
+  Future<void> dropColumn({required String table, required String column});
+}
+```
+
+### MigrationRunner
+
+```dart
+class MigrationRunner {
+  MigrationRunner(DatabaseConnection connection, List<DatabaseMigration> migrations);
+
+  Future<void> runMigrations();
+  Future<void> rollbackLast();
+  Future<void> runSql(String sql, {Map<String, dynamic>? parameters});
+  Future<void> runSqlStatements(List<String> statements);
+  Future<void> runManual(MigrationCallback callback);
+}
+```
+
+### Migration Types
+
+```dart
+// Raw SQL Migration
+RawSqlMigration({
+  required int version,
+  required String description,
+  String upSql = '',
+  String? downSql,
+  List<String>? upSqlStatements,
+  List<String>? downSqlStatements,
+})
+
+// Manual Migration with Callbacks
+ManualMigration({
+  required int version,
+  required String description,
+  required MigrationCallback onUp,
+  MigrationCallback? onDown,
+})
+
+// Composite Migration
+CompositeMigration({
+  required int version,
+  required String description,
+  required List<DatabaseMigration> steps,
+})
+```
+
+---
+
+## Raw Queries & Stored Procedures
+
+### RawQuery
+
+```dart
+class RawQuery {
+  RawQuery(DatabaseConnection connection, String sql, [Map<String, dynamic> parameters = const {}]);
+
+  Future<List<Map<String, dynamic>>> execute();
+  Future<Map<String, dynamic>?> executeFirstOrDefault();
+  Future<dynamic> executeScalar();
+  Future<int> executeNonQuery();
+  String toSql();  // Get SQL with parameters substituted (for debugging)
+}
+```
+
+### StoredProcedure
+
+```dart
+class StoredProcedure {
+  StoredProcedure({
+    required String name,
+    String schema = 'public',
+    List<dynamic> parameters = const [],
+    DatabaseConnection? connection,
+  });
+
+  void setConnection(DatabaseConnection connection);
+  Future<List<Map<String, dynamic>>> execute();
+  Future<dynamic> executeScalar();
+  Future<void> executeNonQuery();
+}
+```
+
+### StoredProcedureBuilder
+
+```dart
+class StoredProcedureBuilder {
+  StoredProcedureBuilder(DatabaseConnection connection, String name);
+
+  StoredProcedureBuilder withSchema(String schema);
+  StoredProcedureBuilder addParameter(dynamic value);
+  StoredProcedure build();
+}
+```
+
+### Usage Examples
+
+```dart
+// Raw query
+final results = await repo.executeRawQuery(
+  'SELECT * FROM users WHERE age > @age ORDER BY name',
+  {'age': 18},
+).execute();
+
+// Stored procedure
+final proc = repo.executeProcedure('calculate_total', parameters: [orderId]);
+final total = await proc.executeScalar();
+
+// Using builder
+final proc = StoredProcedureBuilder(connection, 'get_user_stats')
+    .withSchema('reporting')
+    .addParameter(userId)
+    .addParameter(startDate)
+    .build();
+final stats = await proc.execute();
+```
+
+---
+
 ## Database Support Status
 
 | Database   | Status               | Package Required   | Notes            |
 | ---------- | -------------------- | ------------------ | ---------------- |
 | PostgreSQL | ✅ Fully Implemented | `postgres: ^3.1.0` | Production ready |
 | SQLite3    | ✅ Fully Implemented | `sqlite3: ^3.0.1`  | Production ready |
-| MySQL      | 🔧 Structure Ready   | TBD                | Coming soon      |
+| MySQL      | 🔧 Structure Ready   | `mysql1: ^0.20.0`  | Coming soon      |
 
 ---
 
@@ -816,8 +1495,16 @@ lib/
 │   ├── annotation.dart       # @Entity, @Db, @Column, etc.
 │   ├── repository.dart       # Base Repository class
 │   ├── query_builder.dart    # LINQ-style query builder
+│   ├── raw_query.dart        # Raw SQL query execution
+│   ├── stored_procedure.dart # Stored procedure execution
 │   ├── migration.dart        # DatabaseMigration & MigrationRunner
 │   ├── schema.dart           # DatabaseSchema, ColumnSchema
+│   ├── annotation/
+│   │   ├── entity.dart       # @Entity, @Column, @Id, @Index, etc.
+│   │   ├── relationship.dart # @OneToOne, @OneToMany, @ManyToMany
+│   │   ├── database.dart     # @Db, DbConfig
+│   │   ├── query.dart        # Query-related annotations
+│   │   └── migration.dart    # Migration annotations
 │   └── database/
 │       ├── database_connection.dart
 │       ├── database_factory.dart
@@ -826,7 +1513,8 @@ lib/
 │       └── sqlite_connection.dart
 └── tool/
     ├── entity_generator.dart # Generates .orm.g.dart
-    └── db_generator.dart     # Generates .db.g.dart
+    ├── db_generator.dart     # Generates .db.g.dart
+    └── db_schema_generator.dart # Generates schema SQL
 ```
 
 ---
@@ -836,6 +1524,7 @@ lib/
 See the `/examples` folder for complete working examples:
 
 - `db_postgres_dorm_example/` - PostgreSQL example with entities and database
+- `example/` - Basic usage examples
 
 ---
 

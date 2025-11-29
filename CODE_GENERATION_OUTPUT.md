@@ -1,54 +1,105 @@
 # Code Generation Output Configuration
 
+## Overview
+
+DORM uses `build_runner` to generate code from your annotated classes. This document explains where generated files are placed and how to configure the generation.
+
+## Generated File Types
+
+| Annotation                       | Generated File | Description                           |
+| -------------------------------- | -------------- | ------------------------------------- |
+| `@Entity`                        | `.orm.g.dart`  | Repository with CRUD, fromRow/toRow   |
+| `@Db`                            | `.db.g.dart`   | Repository access, lifecycle, schemas |
+| `@Db` (with `generateSql: true`) | `.sql`         | SQL CREATE TABLE statements           |
+
 ## Generated File Locations
 
-The DORM code generator outputs files **in the same directory** as the source entity files (standard build_runner behavior).
+### Entity Repositories (`.orm.g.dart`)
 
-### Entity Files → Repository Files
+Generated **in the same directory** as the source entity file:
 
-Entity files can be located anywhere under `lib/`, and the generator will create corresponding repository files **in the same directory**:
+| Source File                       | Generated File                          |
+| --------------------------------- | --------------------------------------- |
+| `lib/src/models/user_entity.dart` | `lib/src/models/user_entity.orm.g.dart` |
+| `lib/src/models/post_entity.dart` | `lib/src/models/post_entity.orm.g.dart` |
+| `lib/entities/product.dart`       | `lib/entities/product.orm.g.dart`       |
 
-| Entity File Location               | Generated Repository Location            | Import in Generated File        |
-| ---------------------------------- | ---------------------------------------- | ------------------------------- |
-| `lib/src/user_entity.dart`         | `lib/src/user_entity.orm.g.dart`         | `import 'user_entity.dart';`    |
-| `lib/src/models/post_entity.dart`  | `lib/src/models/post_entity.orm.g.dart`  | `import 'post_entity.dart';`    |
-| `lib/entities/product_entity.dart` | `lib/entities/product_entity.orm.g.dart` | `import 'product_entity.dart';` |
+### Database Extensions (`.db.g.dart`)
 
-### Directory Structure
+Generated **in the same directory** as the database class file:
+
+| Source File                | Generated File                  |
+| -------------------------- | ------------------------------- |
+| `lib/src/db.dart`          | `lib/src/db.db.g.dart`          |
+| `lib/database/app_db.dart` | `lib/database/app_db.db.g.dart` |
+
+### SQL Files (`.sql`)
+
+Generated in `.dart_tool/dorm/` when `generateSql: true`:
+
+| Database Name  | Generated File                     |
+| -------------- | ---------------------------------- |
+| `mydb`         | `.dart_tool/dorm/mydb.sql`         |
+| `app_database` | `.dart_tool/dorm/app_database.sql` |
+
+---
+
+## Directory Structure Example
 
 ```
-lib/
-└── src/
-    └── models/
-        ├── user_entity.dart
-        ├── user_entity.orm.g.dart    # Generated repository
-        ├── post_entity.dart
-        └── post_entity.orm.g.dart    # Generated repository
+your_project/
+├── lib/
+│   └── src/
+│       ├── models/
+│       │   ├── user_entity.dart
+│       │   ├── user_entity.orm.g.dart    # Generated repository
+│       │   ├── post_entity.dart
+│       │   └── post_entity.orm.g.dart    # Generated repository
+│       ├── db.dart
+│       └── db.db.g.dart                  # Generated database extensions
+├── .dart_tool/
+│   └── dorm/
+│       └── mydb.sql                      # Generated SQL (if enabled)
+└── pubspec.yaml
 ```
 
-### How It Works
+---
 
-1. **Entity files** must be annotated with `@Entity` (filename and location don't matter)
-2. **Generated files** are placed in the **same directory** as the source file
-3. **All fields** are automatically included unless marked with `@Ignore` or relationship annotations
-4. **Imports** use simple relative imports (same directory)
+## Using Generated Code
 
-### Using Generated Repositories
-
-In your application code, import repositories from their generated locations:
+### Import Repositories
 
 ```dart
 // Import from the same directory as the entity
+import 'package:your_package/src/models/user_entity.dart';
 import 'package:your_package/src/models/user_entity.orm.g.dart';
-import 'package:your_package/src/models/post_entity.orm.g.dart';
 
-final userRepo = UserEntityRepository();
-final postRepo = PostEntityRepository();
+// Or import the database class which provides repository access
+import 'package:your_package/src/db.dart';
 ```
 
-### Build Configuration
+### Access via Database Class
 
-The `build.yaml` in your project controls which files are processed:
+```dart
+final db = Database();
+await db.init();
+
+// Access repositories via generated extension
+final users = await db.userEntityRepository.getAll();
+final posts = await db.postEntityRepository.query().toList();
+```
+
+---
+
+## Build Configuration
+
+### Default Configuration
+
+The DORM package includes a `build.yaml` that handles most cases automatically.
+
+### Custom Configuration
+
+Create a `build.yaml` in your project root for custom settings:
 
 ```yaml
 targets:
@@ -56,37 +107,108 @@ targets:
     builders:
       dorm|entity:
         enabled: true
+        generate_for:
+          include:
+            - lib/**/*.dart
+      dorm|db:
+        enabled: true
+        generate_for:
+          include:
+            - lib/**/*.dart
+      dorm|db_schema:
+        enabled: true
+        generate_for:
+          include:
+            - lib/**/*.dart
 ```
 
-### Running Code Generation
+---
 
-Generate repository files with:
+## Running Code Generation
+
+### One-time Build
 
 ```bash
 dart run build_runner build
 ```
 
-Or watch for changes:
+### Watch Mode (Auto-rebuild on Changes)
 
 ```bash
 dart run build_runner watch
 ```
 
-### Version Control
+### Clean Build (Delete Conflicting Files)
 
-**Generated files in `lib/db_gen/` should be committed to version control** since they are source files, not build artifacts.
-
-Add to `.gitignore`:
-
+```bash
+dart run build_runner build --delete-conflicting-outputs
 ```
+
+---
+
+## Version Control
+
+### Recommended `.gitignore`
+
+```gitignore
 # Build artifacts
 .dart_tool/
 build/
 
-# Keep generated source files
-!lib/db_gen/
+# Generated files (optional - can commit or ignore)
+# *.g.dart
 ```
 
-## Migration Files
+### Should You Commit Generated Files?
 
-Migration files will be handled separately via CLI (coming soon).
+**Option 1: Commit generated files** (Recommended for libraries)
+
+- Faster CI/CD builds
+- No build_runner dependency for consumers
+
+**Option 2: Ignore generated files** (Recommended for apps)
+
+- Smaller repository
+- Always fresh generated code
+
+---
+
+## Troubleshooting
+
+### Generated files not appearing
+
+```bash
+dart run build_runner build --delete-conflicting-outputs
+```
+
+### Import errors
+
+Ensure you're importing from the correct location (same directory as source file).
+
+### Part directive errors
+
+Ensure your entity file has the correct `part` directive:
+
+```dart
+// user_entity.dart
+import 'package:dorm/dorm.dart';
+
+part 'user_entity.orm.g.dart';  // Must match generated filename
+
+@Entity(tableName: 'users')
+class UserEntity { ... }
+```
+
+### SQL file not generated
+
+Ensure `generateSql: true` is set in your `@Db` annotation:
+
+```dart
+@Db(
+  entities: [UserEntity],
+  migrationVersion: 1,
+  generateSql: true,  // Enable SQL generation
+  name: 'mydb',
+)
+class Database { ... }
+```

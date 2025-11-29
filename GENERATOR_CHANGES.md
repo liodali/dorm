@@ -1,56 +1,87 @@
 # Entity Generator Changes Summary
 
-## Changes Made
+This document tracks changes to the DORM code generation system.
 
-### 1. Output Directory Structure ✅
+## Current Generator Behavior
 
-- **Before**: Files were output to `.dart_tool/build/generated/` (build cache)
-- **After**: Files are output to `lib/db_gen/entities/` (source directory)
-- **Benefit**: Clean, organized structure with all generated repositories in one place
+### Output Location
 
-### 2. Removed Filename Requirement ✅
+Generated files are placed **in the same directory** as the source entity files (standard `build_runner` behavior):
 
-- **Before**: Only processed files ending with `_entity.dart`
-- **After**: Processes ANY file with `@Entity` annotation
-- **Benefit**: More flexible - you can name your entity files however you want
+| Source File                       | Generated File                          |
+| --------------------------------- | --------------------------------------- |
+| `lib/src/models/user_entity.dart` | `lib/src/models/user_entity.orm.g.dart` |
+| `lib/src/db.dart`                 | `lib/src/db.db.g.dart`                  |
 
-### 3. Process All Fields ✅
+### File Processing
 
-- **Before**: Only processed fields with `@Column` or `@Id` annotations
-- **After**: Processes ALL fields except those with `@Ignore` or relationship annotations
-- **Benefit**: Less boilerplate - no need to annotate every field
+- **Entity files**: Any file with `@Entity` annotation (no filename requirements)
+- **Database files**: Any file with `@Db` annotation
+- **All fields included**: Fields are automatically included unless marked with `@Ignore`
 
-### 4. Constructor Parameter Detection ✅
+### Column Name Mapping
 
-- **Added**: `_getConstructorParameters()` method to detect required vs optional fields
-- **Purpose**: Will be used to generate correct `fromRow()` constructor calls
-- **Implementation**: Detects required fields based on nullability (non-nullable = required)
+- **camelCase → snake_case**: Automatic conversion
+- **Custom names**: Use `@Column(name: 'custom_name')`
+- **snake_case unchanged**: Fields already in snake_case remain as-is
 
-### 5. Improved Import Paths ✅
+---
 
-- **Before**: Hardcoded `import '../src/$entityImportPath.dart';`
-- **After**: Dynamic calculation based on source file location
-- **Formula**: From `lib/db_gen/entities/` go up 2 levels (`../../`) then to source path
-- **Examples**:
-  - `lib/src/user.dart` → `import '../../src/user.dart';`
-  - `lib/src/models/post.dart` → `import '../../src/models/post.dart';`
-  - `lib/entities/product.dart` → `import '../../entities/product.dart';`
+## Version History
+
+### v1.0.0 - Current
+
+#### Features
+
+1. **Flexible File Naming** ✅
+
+   - Processes ANY file with `@Entity` annotation
+   - No filename requirements (e.g., `_entity.dart` suffix not required)
+
+2. **Automatic Field Processing** ✅
+
+   - All fields included by default
+   - No need to annotate every field with `@Column`
+   - Use `@Ignore` to exclude fields
+
+3. **Constructor Parameter Detection** ✅
+
+   - Detects required vs optional fields from constructor
+   - Generates correct `fromRow()` constructor calls
+
+4. **Automatic Column Mapping** ✅
+
+   - camelCase to snake_case conversion
+   - Custom names via `@Column(name: 'custom')`
+
+5. **Relationship Support** ✅
+
+   - `@OneToOne`, `@OneToMany`, `@ManyToMany`
+   - Generated repository methods for ManyToMany
+   - Junction table generation
+
+6. **SQL File Generation** ✅
+   - `generateSql: true` in `@Db` annotation
+   - Output to `.dart_tool/dorm/<name>.sql`
+
+---
 
 ## File Structure
 
 ```
-lib/
-├── db_gen/
-│   ├── entities/              # ✅ All generated repository files
-│   │   ├── user_entity.orm.g.dart
-│   │   ├── post_entity.orm.g.dart
-│   │   └── product_entity.orm.g.dart
-│   ├── migrations/            # 🔜 Coming soon (CLI)
-│   └── schemas/               # 🔜 Coming soon (CLI)
-└── src/
-    └── models/
-        ├── user_entity.dart
-        └── post_entity.dart
+your_project/
+├── lib/
+│   └── src/
+│       ├── models/
+│       │   ├── user_entity.dart
+│       │   ├── user_entity.orm.g.dart    # Generated
+│       │   ├── post_entity.dart
+│       │   └── post_entity.orm.g.dart    # Generated
+│       ├── db.dart
+│       └── db.db.g.dart                  # Generated
+└── .dart_tool/
+    └── dorm/
+        └── mydb.sql                      # Generated SQL (if enabled)
 ```
 
 ## Usage
@@ -127,11 +158,46 @@ dart run build_runner build --delete-conflicting-outputs
 dart run build_runner watch --delete-conflicting-outputs
 ```
 
-## Breaking Changes
+## Migration Guide
 
-⚠️ **Import paths have changed!**
+### From Earlier Versions
 
-- **Old**: `import 'package:your_package/db_gen/src/models/user_entity.orm.g.dart';`
-- **New**: `import 'package:your_package/db_gen/entities/user_entity.orm.g.dart';`
+If upgrading from an earlier version of DORM:
 
-Update all imports in your codebase after regenerating.
+1. **Delete old generated files**: Remove any `.g.dart` files in `lib/db_gen/`
+2. **Run build_runner**: `dart run build_runner build --delete-conflicting-outputs`
+3. **Update imports**: Generated files are now in the same directory as source files
+
+### Import Changes
+
+```dart
+// Old (if using db_gen folder)
+import 'package:your_package/db_gen/entities/user_entity.orm.g.dart';
+
+// New (same directory as source)
+import 'package:your_package/src/models/user_entity.orm.g.dart';
+```
+
+---
+
+## Troubleshooting
+
+### Generated code not found
+
+```bash
+dart run build_runner build --delete-conflicting-outputs
+```
+
+### Import errors after regeneration
+
+Check that imports point to the correct location (same directory as source file).
+
+### Fields not being mapped
+
+- Ensure field is not marked with `@Ignore`
+- Ensure field is not a relationship annotation (`@OneToOne`, etc.)
+- Check that field is in the constructor
+
+### Column name incorrect
+
+Use `@Column(name: 'exact_column_name')` to override automatic mapping.

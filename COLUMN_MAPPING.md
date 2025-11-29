@@ -2,9 +2,15 @@
 
 ## Overview
 
-DORM automatically generates `fromRow()` and `toRow()` methods that map between Dart field names and database column names.
+DORM automatically generates `fromRow()` and `toRow()` methods that map between Dart field names and database column names. This document explains the mapping rules and available annotations.
 
 ## Mapping Rules
+
+### Priority Order
+
+1. **`@Column(name: 'custom_name')`** - Explicit custom name takes highest priority
+2. **camelCase → snake_case** - Automatic conversion for camelCase fields
+3. **snake_case unchanged** - Fields already in snake_case remain as-is
 
 ### 1. Custom Column Names
 
@@ -22,14 +28,11 @@ final String email;
 Field names in camelCase are automatically converted to snake_case:
 
 ```dart
-@Column(nullable: false)
-final String firstName;  // → first_name
-
-@Column(nullable: true)
-final DateTime? createdAt;  // → created_at
-
-@Column(nullable: false)
-final String productCode;  // → product_code
+final String firstName;      // → first_name
+final DateTime? createdAt;   // → created_at
+final String productCode;    // → product_code
+final int userId;            // → user_id
+final bool isActive;         // → is_active
 ```
 
 ### 3. snake_case Fields Unchanged
@@ -37,9 +40,12 @@ final String productCode;  // → product_code
 Fields already in snake_case remain as-is:
 
 ```dart
-@Column(nullable: true)
 final String? phone_number;  // → phone_number (unchanged)
 ```
+
+### 4. Fields Without @Column Annotation
+
+**All fields are automatically included** unless marked with `@Ignore` or relationship annotations. You don't need to add `@Column` to every field.
 
 ## Conversion Examples
 
@@ -304,3 +310,146 @@ final String dob;         // Use dateOfBirth instead
 | **Relationships** | Not mapped (not columns)                |
 
 The generator ensures consistent, predictable mapping between your Dart code and database schema!
+
+---
+
+## @Column Annotation Reference
+
+```dart
+class Column {
+  /// Custom column name (overrides automatic conversion)
+  final String? name;
+
+  /// Whether this is a primary key
+  final bool primaryKey;
+
+  /// Whether the column allows NULL values
+  final bool nullable;
+
+  /// Whether the column has a UNIQUE constraint
+  final bool unique;
+
+  /// Default value (SQL expression as string)
+  final String? defaultValue;
+
+  /// Column length (for VARCHAR, etc.)
+  final int? length;
+
+  /// Column type hint
+  final ColumnType columnType;
+
+  const Column({
+    this.name,
+    this.primaryKey = false,
+    this.nullable = true,
+    this.unique = false,
+    this.defaultValue,
+    this.length,
+    this.columnType = ColumnType.text,
+  });
+}
+```
+
+### ColumnType Enum
+
+```dart
+enum ColumnType {
+  text,
+  integer,
+  serial,
+  bigserial,
+  uuid,
+  timestamp,
+  boolean,
+  decimal,
+  json,
+}
+```
+
+---
+
+## @Id Annotation Reference
+
+```dart
+class Id {
+  /// Whether the ID auto-increments
+  final bool autoIncrement;
+
+  /// ID generation strategy (SERIAL, UUID, IDENTITY, etc.)
+  final String? strategy;
+
+  // Factory constructors for different databases
+  const Id.postgres({autoIncrement = true, strategy = 'SERIAL'});
+  const Id.mysql({autoIncrement = true, strategy = 'AUTO_INCREMENT'});
+  const Id.sqlite({autoIncrement = true, strategy = 'AUTOINCREMENT'});
+  const Id({autoIncrement = true, strategy = 'AUTOINCREMENT'});
+}
+```
+
+---
+
+## @Ignore Annotation
+
+Use `@Ignore()` to exclude fields from database mapping:
+
+```dart
+@Entity(tableName: 'users')
+class UserEntity {
+  @Id()
+  int? id;
+
+  String name;
+  String email;
+
+  @Ignore()
+  String? temporaryData;  // Not persisted to database
+
+  @Ignore()
+  bool isSelected = false;  // UI state, not persisted
+}
+```
+
+---
+
+## Complete Annotation Example
+
+```dart
+@Entity(tableName: 'products', dbType: DatabaseType.postgresql)
+@Index(columns: ['sku'], unique: true, name: 'idx_products_sku')
+class ProductEntity {
+  @Id()
+  int? id;
+
+  @Column(nullable: false, unique: true)
+  String sku;
+
+  @Column(name: 'product_name', nullable: false)
+  String name;
+
+  @Column(columnType: ColumnType.decimal, nullable: false)
+  double price;
+
+  @Column(nullable: true, length: 1000)
+  String? description;
+
+  @Column(nullable: false, defaultValue: 'true')
+  bool isActive;
+
+  DateTime? createdAt;  // Auto-mapped to created_at
+  DateTime? updatedAt;  // Auto-mapped to updated_at
+
+  @Ignore()
+  double? discountedPrice;  // Computed, not stored
+
+  ProductEntity({
+    this.id,
+    required this.sku,
+    required this.name,
+    required this.price,
+    this.description,
+    this.isActive = true,
+    this.createdAt,
+    this.updatedAt,
+  });
+}
+```

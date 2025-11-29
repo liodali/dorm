@@ -2,26 +2,33 @@
 
 ## Overview
 
-DORM provides a comprehensive code generation system that automatically generates:
+DORM provides a comprehensive code generation system using `build_runner` that automatically generates:
 
-1. **Entity Repositories** with CRUD operations
-2. **Relationship Loading** (include functionality)
-3. **Database Schemas** with foreign keys
-4. **Migrations** based on schema changes
+1. **Entity Repositories** (`.orm.g.dart`) - CRUD operations, `fromRow()`, `toRow()` methods
+2. **Database Class Extensions** (`.db.g.dart`) - Repository access, lifecycle methods, schema definitions
+3. **SQL Schema Files** (`.sql`) - CREATE TABLE statements for all entities
+4. **Relationship Loading** - `include()` functionality for eager loading
 
 ## Architecture
 
 ```
-@Entity Annotation
-       ↓
-Entity Generator → Repository Code + loadRelationships()
-       ↓
-Schema Generator → Schema Definition + Foreign Keys
-       ↓
-Schema Diff → Compare with Previous Schema
-       ↓
-Migration Generator → Create/Update Migrations
+Source Files                    Generated Files
+─────────────────────────────────────────────────────────────────
+@Entity class
+  user_entity.dart      →       user_entity.orm.g.dart (Repository)
+
+@Db class
+  db.dart               →       db.db.g.dart (Extensions + Schemas)
+                        →       .dart_tool/dorm/<name>.sql (SQL file)
 ```
+
+## Generators
+
+| Generator             | Input             | Output        | Description                           |
+| --------------------- | ----------------- | ------------- | ------------------------------------- |
+| `entity_generator`    | `@Entity` classes | `.orm.g.dart` | Repository with CRUD, fromRow/toRow   |
+| `db_generator`        | `@Db` classes     | `.db.g.dart`  | Repository access, lifecycle, schemas |
+| `db_schema_generator` | `@Db` classes     | `.sql` files  | SQL CREATE TABLE statements           |
 
 ## 1. Entity Generation
 
@@ -345,33 +352,39 @@ The system detects:
 
 ```yaml
 dependencies:
-  dorm: ^1.0.0
-  postgres: ^3.1.0
-  sqlite3: ^3.0.1
+  dorm:
+    git:
+      url: https://github.com/liodali/dorm.git
+  postgres: ^3.1.0 # For PostgreSQL
+  sqlite3: ^3.0.1 # For SQLite
 
 dev_dependencies:
   build_runner: ^2.4.0
-  source_gen: ^1.4.0
 ```
 
 ### build.yaml
+
+The default `build.yaml` in the DORM package handles most cases. For custom configurations:
 
 ```yaml
 targets:
   $default:
     builders:
-      dorm|entity_generator:
+      dorm|entity:
         enabled: true
         generate_for:
-          - lib/models/*.dart
-      dorm|schema_generator:
+          include:
+            - lib/**/*.dart
+      dorm|db:
         enabled: true
         generate_for:
-          - lib/models/*.dart
-      dorm|migration_generator:
+          include:
+            - lib/**/*.dart
+      dorm|db_schema:
         enabled: true
         generate_for:
-          - lib/migrations/*.dart
+          include:
+            - lib/**/*.dart
 ```
 
 ## 6. Usage Workflow
@@ -598,11 +611,93 @@ final blogs = await blogRepo.query()
 
 The DORM code generation system provides:
 
-- ✅ Automatic repository generation
-- ✅ Relationship loading with `include()`
-- ✅ Schema management with foreign keys
-- ✅ Migration generation based on changes
+- ✅ Automatic repository generation with CRUD operations
+- ✅ Relationship loading with `include()` for eager loading
+- ✅ Schema management with foreign keys, indexes, and constraints
+- ✅ SQL file generation for database setup
 - ✅ Type-safe, compile-time code generation
-- ✅ Support for PostgreSQL, MySQL, and SQLite
+- ✅ Automatic camelCase to snake_case column mapping
+- ✅ Support for PostgreSQL and SQLite (MySQL coming soon)
 
 This enables rapid development while maintaining type safety and database consistency.
+
+## Generated Code Reference
+
+### Entity Repository (`.orm.g.dart`)
+
+```dart
+class UserEntityRepository extends Repository<UserEntity> {
+  UserEntityRepository() : super('users');
+
+  @override
+  UserEntity fromRow(Map<String, dynamic> row) {
+    return UserEntity(
+      id: row['id'] as int?,
+      name: row['name'] as String,
+      email: row['email'] as String,
+      createdAt: row['created_at'] != null
+          ? DateTime.parse(row['created_at'].toString())
+          : null,
+    );
+  }
+
+  @override
+  Map<String, dynamic> toRow(UserEntity entity) {
+    return {
+      'id': entity.id,
+      'name': entity.name,
+      'email': entity.email,
+      'created_at': entity.createdAt?.toIso8601String(),
+    };
+  }
+
+  @override
+  Future<void> loadRelationships(UserEntity entity, List<String> includes) async {
+    // Generated relationship loading code
+  }
+}
+```
+
+### Database Extensions (`.db.g.dart`)
+
+```dart
+// Repository access
+extension DatabaseRepositories on Database {
+  UserEntityRepository get userEntityRepository => ...;
+  PostEntityRepository get postEntityRepository => ...;
+}
+
+// Lifecycle methods
+extension DatabaseLifecycle on Database {
+  static const int currentMigrationVersion = 1;
+
+  Future<void> setup({...}) async { ... }
+  Future<void> init([DatabaseConfig? config]) async { ... }
+  Future<void> initializeDatabase({...}) async { ... }
+  Future<void> close() async { ... }
+}
+
+// Schema definitions
+const userEntitySchema = DatabaseSchema(
+  tableName: 'users',
+  columns: [...],
+  foreignKeys: [...],
+  indexes: [...],
+);
+```
+
+### SQL File (`.dart_tool/dorm/<name>.sql`)
+
+```sql
+-- Database: mydb
+-- Generated: 2024-01-15T10:30:00.000Z
+-- Migration Version: 1
+
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
+```
