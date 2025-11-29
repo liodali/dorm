@@ -33,7 +33,7 @@ void main() async {
 
     // Access schemas from code
     print('Schemas defined in code:');
-    for (final schema in db.schemas) {
+    for (final schema in db.databaseSchemas) {
       print('  - ${schema.tableName}: ${schema.columns.length} columns');
     }
     print('');

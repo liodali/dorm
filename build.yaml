@@ -3,7 +3,7 @@ targets:
     builders:
       dorm|entity:
         enabled: true
-      dorm|schema:
+      dorm|db_schema:
         enabled: true
       dorm|db:
         enabled: true
@@ -19,12 +19,12 @@ builders:
     build_extensions: { ".dart": [".orm.g.dart"] }
     auto_apply: dependents
     build_to: source
-    runs_before: ["dorm|schema"]
+    runs_before: ["dorm|db_schema"]
 
-  schema:
-    import: "package:dorm/tool/schema_generator.dart"
-    builder_factories: ["schemaGeneratorBuilder"]
-    build_extensions: { ".dart": [".schema.g.dart"] }
+  db_schema:
+    import: "package:dorm/tool/db_schema_generator.dart"
+    builder_factories: ["dbSchemaGeneratorBuilder"]
+    build_extensions: { ".dart": [".schemas.g.dart"] }
     auto_apply: dependents
     build_to: source
     required_inputs: [".orm.g.dart"]
@@ -36,7 +36,7 @@ builders:
     build_extensions: { ".dart": [".db.g.dart"] }
     auto_apply: dependents
     build_to: source
-    required_inputs: [".schema.g.dart"]
+    required_inputs: [".schemas.g.dart"]
 
   migration:
     import: "package:dorm/tool/migration_generator.dart"

@@ -4,6 +4,7 @@ import 'package:dorm/dorm.dart';
 
 import 'models/user_entity.dart';
 
+part 'db.schemas.g.dart';
 part 'db.db.g.dart';
 
 @Db(
@@ -13,11 +14,13 @@ part 'db.db.g.dart';
     host: 'localhost',
     port: 5432,
     database: 'mydb',
-    username: 'user',
-    password: 'password',
+    username: 'postgres',
+    password: 'postgres',
   ),
   name: 'mydb',
   generateSql: true, // Generates SQL file at .dart_tool/dorm/mydb.sql
+  sqlDialect:
+      DatabaseType.postgresql, // Specify PostgreSQL dialect for SQL generation
 )
 class Database {
   /// Database connection (managed by generated code)

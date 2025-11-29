@@ -2,7 +2,6 @@ import 'package:db_postgres_dorm_example/src/models/blog_entity.dart';
 import 'package:dorm/dorm.dart';
 
 part 'user_entity.orm.g.dart';
-part 'user_entity.schema.g.dart';
 
 @Entity(
   tableName: 'users',
