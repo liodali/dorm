@@ -412,7 +412,6 @@ ${cases.join('\n')}
     String ownerTableName,
   ) {
     final targetEntity = _extractTargetEntity(annotation);
-    final mappedBy = _extractMappedBy(annotation);
     final joinTableInfo = _extractJoinTableInfo(
       annotation,
       ownerTableName,

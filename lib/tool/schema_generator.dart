@@ -1,6 +1,8 @@
+import 'package:analyzer/dart/constant/value.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
+import 'package:collection/collection.dart';
 import 'package:dorm/src/annotation.dart';
 import 'package:source_gen/source_gen.dart';
 
@@ -11,11 +13,18 @@ class SchemaGenerator extends GeneratorForAnnotation<Entity> {
     ConstantReader annotation,
     BuildStep buildStep,
   ) async {
+    final classElement = element as ClassElement;
     final className = element.name;
     final tableName =
         annotation.peek('tableName')?.stringValue ?? _toTableName(className!);
 
-    final schema = _generateSchema(element as ClassElement, tableName);
+    // Collect all field names for validation
+    final fieldNames = _collectFieldNames(classElement);
+
+    // Validate class-level annotations
+    _validateClassAnnotations(classElement, fieldNames);
+
+    final schema = _generateSchema(classElement, tableName, fieldNames);
 
     return '''
 // Generated schema for $className
@@ -28,19 +37,99 @@ final ${_toCamelCase(className!)}Schema = DatabaseSchema(
     ''';
   }
 
-  String _generateSchema(ClassElement element, String tableName) {
+  /// Collect all field names (as snake_case column names)
+  Set<String> _collectFieldNames(ClassElement element) {
+    final names = <String>{};
+    for (final field in element.fields) {
+      if (field.isStatic) continue;
+      if (_isRelationshipField(field)) continue;
+      if (_hasAnnotation(field, 'Ignore')) continue;
+      names.add(_toSnakeCase(field.displayName));
+    }
+    return names;
+  }
+
+  /// Validate class-level annotations (PrimaryKey, Unique, Index)
+  void _validateClassAnnotations(ClassElement element, Set<String> fieldNames) {
+    for (final annotation in element.metadata.annotations) {
+      final annotationName = annotation.element?.enclosingElement?.name;
+
+      if (annotationName == 'PrimaryKey') {
+        _validateColumnsExist(annotation, 'PrimaryKey', fieldNames);
+      } else if (annotationName == 'Unique') {
+        final columns = _getAnnotationListValue(annotation, 'columns');
+        if (columns != null && columns.isNotEmpty) {
+          _validateColumnsExist(annotation, 'Unique', fieldNames);
+        }
+      } else if (annotationName == 'Index') {
+        _validateColumnsExist(annotation, 'Index', fieldNames);
+      }
+    }
+  }
+
+  /// Validate that all columns in an annotation exist in the entity
+  void _validateColumnsExist(
+    ElementAnnotation annotation,
+    String annotationName,
+    Set<String> fieldNames,
+  ) {
+    final columns = _getAnnotationListValue(annotation, 'columns');
+    if (columns == null) return;
+
+    for (final column in columns) {
+      final columnName = column.toStringValue();
+      if (columnName != null && !fieldNames.contains(columnName)) {
+        throw InvalidGenerationSourceError(
+          '@$annotationName references column "$columnName" which does not exist. '
+          'Available columns: ${fieldNames.join(', ')}',
+          element: annotation.element,
+        );
+      }
+    }
+  }
+
+  /// Get a list value from an annotation
+  List<DartObject>? _getAnnotationListValue(
+    ElementAnnotation annotation,
+    String fieldName,
+  ) {
+    final value = annotation.computeConstantValue();
+    return value?.getField(fieldName)?.toListValue();
+  }
+
+  String _generateSchema(
+    ClassElement element,
+    String tableName,
+    Set<String> fieldNames,
+  ) {
     final columns = <String>[];
     final foreignKeys = <String>[];
+    final constraints = <String>[];
+
+    // Process class-level annotations
+    _processClassConstraints(element, constraints, fieldNames);
 
     for (final field in element.fields) {
       if (field.isStatic) continue;
 
-      final column = _readColumnAnnotation(field);
+      // Skip relationship fields - they are not columns
+      if (_isRelationshipField(field)) continue;
+
+      // Skip ignored fields
+      if (_hasAnnotation(field, 'Ignore')) continue;
+
+      final column = _readColumnAnnotation(field, fieldNames);
       if (column != null) {
         columns.add(column);
 
-        // Check if this is a foreign key (ends with Id or _id)
-        if (field.displayName.endsWith('Id') ||
+        // Check for ForeignKeyConstraint annotation
+        final fkAnnotation = _getFieldAnnotation(field, 'ForeignKeyConstraint');
+        if (fkAnnotation != null) {
+          final fk = _processForeignKeyAnnotation(field, fkAnnotation);
+          if (fk != null) foreignKeys.add(fk);
+        }
+        // Auto-detect foreign key (ends with Id or _id)
+        else if (field.displayName.endsWith('Id') ||
             field.displayName.endsWith('_id')) {
           final refTable = _inferReferencedTable(field.displayName);
           foreignKeys.add(
@@ -50,20 +139,112 @@ final ${_toCamelCase(className!)}Schema = DatabaseSchema(
       }
     }
 
-    final schema = columns.join(',\n    ');
+    final schemaItems = [...columns];
     if (foreignKeys.isNotEmpty) {
-      return '$schema,\n    // Foreign Keys\n    ${foreignKeys.join(',\n    ')}';
+      schemaItems.add('// Foreign Keys');
+      schemaItems.addAll(foreignKeys);
     }
-    return schema;
+    if (constraints.isNotEmpty) {
+      schemaItems.add('// Constraints');
+      schemaItems.addAll(constraints);
+    }
+
+    return schemaItems.join(',\n    ');
   }
 
-  String? _readColumnAnnotation(FieldElement field) {
-    // Parse and generate column definitions
+  /// Process class-level constraint annotations
+  void _processClassConstraints(
+    ClassElement element,
+    List<String> constraints,
+    Set<String> fieldNames,
+  ) {
+    for (final annotation in element.metadata.annotations) {
+      final annotationName = annotation.element?.enclosingElement?.name;
+
+      if (annotationName == 'PrimaryKey') {
+        final columns = _getAnnotationListValue(annotation, 'columns');
+        if (columns != null) {
+          final columnNames = columns
+              .map((c) => "'${c.toStringValue()}'")
+              .join(', ');
+          final name = annotation
+              .computeConstantValue()
+              ?.getField('name')
+              ?.toStringValue();
+          constraints.add(
+            "// PRIMARY KEY ($columnNames)${name != null ? ' CONSTRAINT $name' : ''}",
+          );
+        }
+      } else if (annotationName == 'Unique') {
+        final columns = _getAnnotationListValue(annotation, 'columns');
+        if (columns != null && columns.isNotEmpty) {
+          final columnNames = columns
+              .map((c) => "'${c.toStringValue()}'")
+              .join(', ');
+          final name = annotation
+              .computeConstantValue()
+              ?.getField('name')
+              ?.toStringValue();
+          constraints.add(
+            "// UNIQUE ($columnNames)${name != null ? ' CONSTRAINT $name' : ''}",
+          );
+        }
+      }
+    }
+  }
+
+  /// Get a specific annotation from a field
+  ElementAnnotation? _getFieldAnnotation(FieldElement field, String name) {
+    return field.metadata.annotations.firstWhereOrNull(
+      (a) => a.element?.enclosingElement?.name == name,
+    );
+  }
+
+  /// Process ForeignKeyConstraint annotation
+  String? _processForeignKeyAnnotation(
+    FieldElement field,
+    ElementAnnotation annotation,
+  ) {
+    final value = annotation.computeConstantValue();
+    if (value == null) return null;
+
+    final column =
+        value.getField('column')?.toStringValue() ??
+        _toSnakeCase(field.displayName);
+    final referencedTable = value.getField('referencedTable')?.toStringValue();
+    final referencedColumn =
+        value.getField('referencedColumn')?.toStringValue() ?? 'id';
+
+    if (referencedTable == null) return null;
+
+    return "ForeignKey(column: '$column', referencedTable: '$referencedTable', referencedColumn: '$referencedColumn')";
+  }
+
+  /// Check if a field has a relationship annotation
+  bool _isRelationshipField(FieldElement field) {
+    return _hasAnnotation(field, 'OneToOne') ||
+        _hasAnnotation(field, 'OneToMany') ||
+        _hasAnnotation(field, 'ManyToMany');
+  }
+
+  /// Check if a field has a specific annotation
+  bool _hasAnnotation(FieldElement field, String annotationName) {
+    return field.metadata.annotations.firstWhereOrNull(
+          (a) => a.element?.enclosingElement?.name == annotationName,
+        ) !=
+        null;
+  }
+
+  String? _readColumnAnnotation(FieldElement field, Set<String> fieldNames) {
+    final isUnique = _hasAnnotation(field, 'Unique');
+    final isId = _hasAnnotation(field, 'Id');
+
     return '''ColumnSchema(
       name: '${_toSnakeCase(field.displayName)}',
       type: '${_getDartToSqlType(field.type)}',
-      nullable: true,
-      primaryKey: false,
+      nullable: ${!isId && field.type.nullabilitySuffix.toString().contains('question')},
+      primaryKey: $isId,
+      unique: $isUnique,
     )''';
   }
 

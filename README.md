@@ -200,6 +200,85 @@ Excludes a field from database mapping.
 String temporaryData;
 ```
 
+### `@PrimaryKey`
+
+Defines a composite primary key (use on entity class).
+
+```dart
+@Entity(tableName: 'order_items')
+@PrimaryKey(columns: ['order_id', 'product_id'])
+class OrderItemEntity {
+  int orderId;
+  int productId;
+  int quantity;
+}
+```
+
+**Validation:** The generator will fail if any column in `columns` does not exist as a field in the entity.
+
+### `@Unique`
+
+Defines unique constraints. Can be used on a field or on the entity class for composite unique constraints.
+
+```dart
+// Single column unique (on field)
+@Unique()
+String email;
+
+// Composite unique (on entity class)
+@Entity(tableName: 'user_roles')
+@Unique(columns: ['user_id', 'role_id'], name: 'uq_user_role')
+class UserRoleEntity {
+  int userId;
+  int roleId;
+}
+```
+
+**Validation:** The generator will fail if any column in `columns` does not exist as a field in the entity.
+
+### `@ForeignKeyConstraint`
+
+Defines a foreign key constraint on a field.
+
+```dart
+@ForeignKeyConstraint(
+  referencedTable: 'users',
+  referencedColumn: 'id',
+  onDelete: ConstraintAction.cascade,
+  onUpdate: ConstraintAction.noAction,
+)
+int? userId;
+```
+
+**Parameters:**
+
+- `column` - Column name (defaults to field name)
+- `referencedTable` - Referenced table name (required)
+- `referencedColumn` - Referenced column (default: 'id')
+- `onDelete` / `onUpdate` - Constraint actions (`ConstraintAction.cascade`, etc.)
+- `name` - Optional constraint name
+
+### `@Check`
+
+Defines a check constraint on a field.
+
+```dart
+@Check(expression: 'age >= 0 AND age <= 150')
+int age;
+```
+
+### `@Index`
+
+Creates a database index.
+
+```dart
+@Entity(tableName: 'users')
+@Index(columns: ['email'], unique: true, name: 'idx_users_email')
+class UserEntity { ... }
+```
+
+**Validation:** The generator will fail if any column in `columns` does not exist as a field in the entity.
+
 ### Relationship Annotations
 
 #### `@OneToMany`
