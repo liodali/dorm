@@ -404,6 +404,8 @@ List<RoleEntity>? roles;
 
 ### Creating a Migration
 
+Migrations now have built-in helper methods that automatically skip operations if the object already exists:
+
 ```dart
 class Migration001 extends DatabaseMigration {
   @override
@@ -414,34 +416,95 @@ class Migration001 extends DatabaseMigration {
 
   @override
   Future<void> up() async {
+    // Option 1: Use schema object (recommended)
+    await createTable(DatabaseSchema(
+      tableName: 'users',
+      columns: [
+        ColumnSchema(name: 'id', type: 'INTEGER', primaryKey: true),
+        ColumnSchema(name: 'name', type: 'VARCHAR(100)', nullable: false),
+        ColumnSchema(name: 'email', type: 'VARCHAR(255)', nullable: false, unique: true),
+        ColumnSchema(name: 'created_at', type: 'TIMESTAMP', defaultValue: 'CURRENT_TIMESTAMP'),
+      ],
+      indexes: [
+        IndexSchema(name: 'idx_users_email', columns: ['email'], unique: true),
+      ],
+    ));
+
+    // Option 2: Use raw SQL
     await connection.execute('''
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
-        email VARCHAR(255) NOT NULL UNIQUE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        email VARCHAR(255) NOT NULL UNIQUE
       )
     ''');
+
+    // Helper methods (all skip if already exists)
+    await createIndex(name: 'idx_users_name', table: 'users', columns: ['name']);
+    await addColumn(table: 'users', column: 'bio', type: 'TEXT', nullable: true);
   }
 
   @override
   Future<void> down() async {
-    await connection.execute('DROP TABLE IF EXISTS users');
+    await dropTable('users');
   }
 }
 ```
 
+### Migration Helper Methods
+
+All helper methods automatically check if the object exists and skip if it does:
+
+| Method                | Description                       |
+| --------------------- | --------------------------------- |
+| `createTable(schema)` | Creates table with IF NOT EXISTS  |
+| `dropTable(name)`     | Drops table with IF EXISTS        |
+| `tableExists(name)`   | Returns true if table exists      |
+| `createIndex(...)`    | Creates index, skips if exists    |
+| `dropIndex(name)`     | Drops index, skips if not exists  |
+| `addColumn(...)`      | Adds column, skips if exists      |
+| `dropColumn(...)`     | Drops column, skips if not exists |
+
 ### Running Migrations
 
+The `setup()` method handles the complete database initialization flow:
+
 ```dart
-await db.initializeDatabase(
+// Complete setup: connect → create schema → run migrations → validate
+await db.setup(
+  config: DatabaseConfig.postgresql(...),  // Optional if defined in @Db
   migrations: [
     Migration001(),
     Migration002(),
     Migration003(),
   ],
-  validateSchema: true,
+  autoCreateSchema: true,   // Creates tables from schema (default: true)
+  validateSchema: true,     // Validates schema matches code (default: true)
 );
+```
+
+**Flow:**
+
+1. **Connect** - Establishes database connection
+2. **Create Schema** - Creates all tables using `IF NOT EXISTS` (skips existing)
+3. **Run Migrations** - Executes pending migrations (skips already applied)
+4. **Validate Schema** - Checks schema matches code definitions
+
+You can also call individual methods:
+
+```dart
+// Just connect
+await db.init(config);
+
+// Create schema tables (safe to call multiple times)
+await db.createSchema();
+
+// Run migrations only
+await db.initializeDatabase(migrations: [...]);
+
+// Get SQL without executing
+final sql = db.getCreateSchemaSql();
+print(sql.join('\n'));
 ```
 
 ### Schema Validation
@@ -458,6 +521,89 @@ DORM automatically:
 // Differences found:
 // Column "new_column" missing in table "users"
 // Please increment migrationVersion in @Db annotation and create a migration.
+```
+
+---
+
+## Schema to SQL
+
+### Accessing Entity Schema
+
+Each entity has a generated schema extension in `.schema.g.dart`:
+
+```dart
+// Access schema via extension
+final schema = UserEntitySchema.schema;
+final tableName = UserEntitySchema.tableName;
+
+// Or from an instance
+final user = UserEntity();
+// user.schema (if instance method needed)
+```
+
+### Converting Schema to SQL
+
+Use the extension methods to convert schema objects to SQL:
+
+```dart
+// Get schema from entity
+final schema = UserEntitySchema.schema;
+
+// Or create manually
+final schema = DatabaseSchema(
+  tableName: 'users',
+  columns: [
+    ColumnSchema(name: 'id', type: 'INTEGER', primaryKey: true),
+    ColumnSchema(name: 'name', type: 'VARCHAR(100)', nullable: false),
+    ColumnSchema(name: 'email', type: 'VARCHAR(255)', nullable: false, unique: true),
+  ],
+  foreignKeys: [
+    ForeignKey(column: 'role_id', referencedTable: 'roles', referencedColumn: 'id'),
+  ],
+  indexes: [
+    IndexSchema(name: 'idx_users_email', columns: ['email'], unique: true),
+  ],
+);
+
+// Generate CREATE TABLE SQL with IF NOT EXISTS
+final createSql = schema.toCreateTableSql(DatabaseType.postgresql);
+// CREATE TABLE IF NOT EXISTS users (
+//   id SERIAL PRIMARY KEY,
+//   name VARCHAR(100) NOT NULL,
+//   email VARCHAR(255) NOT NULL UNIQUE,
+//   FOREIGN KEY (role_id) REFERENCES roles (id)
+// );
+
+// Generate CREATE INDEX SQL
+final indexSql = schema.toCreateIndexSql(DatabaseType.postgresql);
+// ['CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email);']
+
+// Generate DROP TABLE SQL
+final dropSql = schema.toDropTableSql(DatabaseType.postgresql);
+// DROP TABLE IF EXISTS users;
+```
+
+### SchemaManager
+
+Use `SchemaManager` to execute schema operations:
+
+```dart
+final schemaManager = SchemaManager(connection);
+
+// Create table (skips if exists)
+await schemaManager.createTable(schema);
+
+// Create multiple tables
+await schemaManager.createTables([usersSchema, postsSchema, rolesSchema]);
+
+// Check if table exists
+final exists = await schemaManager.tableExists('users');
+
+// Get all table names
+final tables = await schemaManager.getTableNames();
+
+// Drop table (skips if not exists)
+await schemaManager.dropTable(schema);
 ```
 
 ---

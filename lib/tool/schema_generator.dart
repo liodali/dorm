@@ -24,17 +24,155 @@ class SchemaGenerator extends GeneratorForAnnotation<Entity> {
     // Validate class-level annotations
     _validateClassAnnotations(classElement, fieldNames);
 
-    final schema = _generateSchema(classElement, tableName, fieldNames);
+    final schemaContent = _generateSchema(classElement, tableName, fieldNames);
+    final indexes = _generateIndexes(classElement, tableName);
+    final foreignKeys = _generateForeignKeys(classElement);
+    final primaryKeyColumns = _generatePrimaryKeyColumns(classElement);
+    final uniqueConstraints = _generateUniqueConstraints(classElement);
+    final checkConstraints = _generateCheckConstraints(classElement);
 
     return '''
-// Generated schema for $className
-final ${_toCamelCase(className!)}Schema = DatabaseSchema(
+/// Schema extension for $className
+extension ${className}Schema on $className {
+  /// Get the database schema for this entity
+  static DatabaseSchema get schema => _${_toCamelCase(className!)}Schema;
+  
+  /// Table name for this entity
+  static String get tableName => '$tableName';
+}
+
+/// Generated schema for $className
+const _${_toCamelCase(className)}Schema = DatabaseSchema(
   tableName: '$tableName',
   columns: [
-    $schema
-  ],
+    $schemaContent
+  ],${indexes.isNotEmpty ? '''
+  indexes: [
+    $indexes
+  ],''' : ''}${foreignKeys.isNotEmpty ? '''
+  foreignKeys: [
+    $foreignKeys
+  ],''' : ''}${primaryKeyColumns.isNotEmpty ? '''
+  primaryKeyColumns: [$primaryKeyColumns],''' : ''}${uniqueConstraints.isNotEmpty ? '''
+  uniqueConstraints: [
+    $uniqueConstraints
+  ],''' : ''}${checkConstraints.isNotEmpty ? '''
+  checkConstraints: [
+    $checkConstraints
+  ],''' : ''}
 );
     ''';
+  }
+
+  /// Generate indexes from @Index annotations
+  String _generateIndexes(ClassElement element, String tableName) {
+    final indexes = <String>[];
+
+    for (final annotation in element.metadata.annotations) {
+      if (annotation.element?.enclosingElement?.name == 'Index') {
+        final value = annotation.computeConstantValue();
+        if (value == null) continue;
+
+        final columns = value.getField('columns')?.toListValue();
+        if (columns == null || columns.isEmpty) continue;
+
+        final columnNames = columns
+            .map((c) => "'${c.toStringValue()}'")
+            .join(', ');
+        final name =
+            value.getField('name')?.toStringValue() ??
+            'idx_${tableName}_${columns.map((c) => c.toStringValue()).join('_')}';
+        final unique = value.getField('unique')?.toBoolValue() ?? false;
+
+        indexes.add(
+          "IndexSchema(name: '$name', columns: [$columnNames], unique: $unique)",
+        );
+      }
+    }
+
+    return indexes.join(',\n    ');
+  }
+
+  /// Generate foreign keys from fields
+  String _generateForeignKeys(ClassElement element) {
+    final foreignKeys = <String>[];
+
+    for (final field in element.fields) {
+      if (field.isStatic) continue;
+      if (_isRelationshipField(field)) continue;
+      if (_hasAnnotation(field, 'Ignore')) continue;
+
+      // Check for ForeignKeyConstraint annotation
+      final fkAnnotation = _getFieldAnnotation(field, 'ForeignKeyConstraint');
+      if (fkAnnotation != null) {
+        final fk = _processForeignKeyAnnotation(field, fkAnnotation);
+        if (fk != null) foreignKeys.add(fk);
+      }
+    }
+
+    return foreignKeys.join(',\n    ');
+  }
+
+  /// Generate primary key columns from @PrimaryKey annotation
+  String _generatePrimaryKeyColumns(ClassElement element) {
+    for (final annotation in element.metadata.annotations) {
+      if (annotation.element?.enclosingElement?.name == 'PrimaryKey') {
+        final value = annotation.computeConstantValue();
+        final columns = value?.getField('columns')?.toListValue();
+        if (columns != null && columns.isNotEmpty) {
+          return columns.map((c) => "'${c.toStringValue()}'").join(', ');
+        }
+      }
+    }
+    return '';
+  }
+
+  /// Generate unique constraints from class-level @Unique annotations
+  String _generateUniqueConstraints(ClassElement element) {
+    final constraints = <String>[];
+
+    for (final annotation in element.metadata.annotations) {
+      if (annotation.element?.enclosingElement?.name == 'Unique') {
+        final value = annotation.computeConstantValue();
+        final columns = value?.getField('columns')?.toListValue();
+        if (columns != null && columns.isNotEmpty) {
+          final columnNames = columns
+              .map((c) => "'${c.toStringValue()}'")
+              .join(', ');
+          final name = value?.getField('name')?.toStringValue();
+          final nameParam = name != null ? ", name: '$name'" : '';
+          constraints.add(
+            "UniqueConstraint(columns: [$columnNames]$nameParam)",
+          );
+        }
+      }
+    }
+
+    return constraints.join(',\n    ');
+  }
+
+  /// Generate check constraints from @Check annotations
+  String _generateCheckConstraints(ClassElement element) {
+    final constraints = <String>[];
+
+    for (final field in element.fields) {
+      if (field.isStatic) continue;
+
+      final checkAnnotation = _getFieldAnnotation(field, 'Check');
+      if (checkAnnotation != null) {
+        final value = checkAnnotation.computeConstantValue();
+        final expression = value?.getField('expression')?.toStringValue();
+        final name = value?.getField('name')?.toStringValue();
+        if (expression != null) {
+          final nameParam = name != null ? ", name: '$name'" : '';
+          constraints.add(
+            "CheckConstraint(expression: '$expression'$nameParam)",
+          );
+        }
+      }
+    }
+
+    return constraints.join(',\n    ');
   }
 
   /// Collect all field names (as snake_case column names)

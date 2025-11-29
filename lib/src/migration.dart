@@ -1,7 +1,9 @@
 import 'package:dorm/src/database/database_connection.dart';
+import 'package:dorm/src/schema.dart';
 
 abstract class DatabaseMigration {
   late DatabaseConnection connection;
+  late SchemaManager schemaManager;
 
   int get version;
   String get description;
@@ -9,6 +11,7 @@ abstract class DatabaseMigration {
 
   void setConnection(DatabaseConnection conn) {
     connection = conn;
+    schemaManager = SchemaManager(conn);
   }
 
   /// Migration up - create/modify schema
@@ -16,6 +19,98 @@ abstract class DatabaseMigration {
 
   /// Migration down - rollback schema
   Future<void> down();
+
+  /// Helper to create a table from schema (skips if exists)
+  Future<void> createTable(DatabaseSchema schema) async {
+    await schemaManager.createTable(schema);
+  }
+
+  /// Helper to drop a table (skips if not exists)
+  Future<void> dropTable(String tableName) async {
+    final sql = 'DROP TABLE IF EXISTS $tableName;';
+    await connection.execute(sql);
+  }
+
+  /// Helper to check if table exists
+  Future<bool> tableExists(String tableName) async {
+    return await schemaManager.tableExists(tableName);
+  }
+
+  /// Helper to create index (skips if exists)
+  Future<void> createIndex({
+    required String name,
+    required String table,
+    required List<String> columns,
+    bool unique = false,
+  }) async {
+    final exists = await schemaManager.indexExists(name, table);
+    if (exists) return;
+
+    final uniqueKeyword = unique ? 'UNIQUE ' : '';
+    final sql =
+        'CREATE ${uniqueKeyword}INDEX $name ON $table (${columns.join(', ')});';
+    await connection.execute(sql);
+  }
+
+  /// Helper to drop index (skips if not exists)
+  Future<void> dropIndex(String name) async {
+    final sql = switch (dbType) {
+      DatabaseType.mysql => 'DROP INDEX IF EXISTS $name;',
+      _ => 'DROP INDEX IF EXISTS $name;',
+    };
+    await connection.execute(sql);
+  }
+
+  /// Helper to add column (skips if exists)
+  Future<void> addColumn({
+    required String table,
+    required String column,
+    required String type,
+    bool nullable = true,
+    String? defaultValue,
+  }) async {
+    final exists = await _columnExists(table, column);
+    if (exists) return;
+
+    final nullableStr = nullable ? '' : ' NOT NULL';
+    final defaultStr = defaultValue != null ? ' DEFAULT $defaultValue' : '';
+    final sql =
+        'ALTER TABLE $table ADD COLUMN $column $type$nullableStr$defaultStr;';
+    await connection.execute(sql);
+  }
+
+  /// Helper to drop column (skips if not exists)
+  Future<void> dropColumn({
+    required String table,
+    required String column,
+  }) async {
+    final exists = await _columnExists(table, column);
+    if (!exists) return;
+
+    final sql = 'ALTER TABLE $table DROP COLUMN $column;';
+    await connection.execute(sql);
+  }
+
+  Future<bool> _columnExists(String table, String column) async {
+    final sql = switch (dbType) {
+      DatabaseType.postgresql =>
+        """
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = '$table' AND column_name = '$column'
+      """,
+      DatabaseType.mysql =>
+        """
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = '$table' AND column_name = '$column'
+      """,
+      DatabaseType.sqlite =>
+        """
+        SELECT 1 FROM pragma_table_info('$table') WHERE name = '$column'
+      """,
+    };
+    final result = await connection.query(sql);
+    return result.isNotEmpty;
+  }
 }
 
 // /// Example migration with PostgreSQL SERIAL support
