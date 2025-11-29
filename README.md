@@ -237,6 +237,50 @@ UserEntity? author;
 - `lazyLoad` / `eagerLoad` - Loading strategy
 - `onDelete` / `onUpdate` - FK constraint actions (`RelationAction.cascade`, etc.)
 
+#### `@OneToOne`
+
+Defines a one-to-one relationship between entities. One side owns the FK column.
+
+```dart
+// In UserEntity (inverse side - no FK column)
+@OneToOne(
+  targetEntity: ProfileEntity,
+  mappedBy: 'user',  // Field name in ProfileEntity
+)
+ProfileEntity? profile;
+
+// In ProfileEntity (owning side - has FK column)
+@OneToOne(
+  targetEntity: UserEntity,
+  foreignKey: 'user_id',
+  isOwning: true,
+  unique: true,  // Ensures 1:1 constraint
+  onDelete: RelationAction.cascade,
+)
+UserEntity? user;
+```
+
+**Parameters:**
+
+- `targetEntity` - The related entity type (required)
+- `mappedBy` - Field name in target entity (for inverse side)
+- `foreignKey` - FK column name (for owning side)
+- `referencedColumn` - Referenced column (default: 'id')
+- `isOwning` - Whether this side owns the FK (default: false)
+- `unique` - Enforce uniqueness on FK column (default: true)
+- `nullable` - Whether relationship is nullable (default: true)
+- `onDelete` / `onUpdate` - FK constraint actions
+
+**Generated repository methods:**
+
+```dart
+// Get the related entity
+Future<ProfileEntity?> getProfile(int userId) async { ... }
+
+// Set the related entity (owning side only)
+Future<void> setProfile(int userId, int? profileId) async { ... }
+```
+
 #### `@ManyToMany`
 
 Creates a junction table to link two entities. One side is the "owning" side (defines the junction table), the other is the "inverse" side (references the owning side).
