@@ -17,6 +17,7 @@ part 'db.db.g.dart';
     password: 'password',
   ),
   name: 'mydb',
+  generateSql: true, // Generates SQL file at .dart_tool/dorm/mydb.sql
 )
 class Database {
   /// Database connection (managed by generated code)
