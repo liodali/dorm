@@ -238,11 +238,16 @@ class JoinTable {
   /// Additional indexes to create on the junction table
   final List<String>? additionalIndexes;
 
+  /// Extra columns to add to the junction table
+  /// Use this to add custom attributes like timestamps, status flags, etc.
+  final List<JunctionColumn>? extraColumns;
+
   const JoinTable({
     required this.name,
     required this.joinColumn,
     required this.inverseJoinColumn,
     this.additionalIndexes,
+    this.extraColumns,
   });
 }
 
@@ -262,4 +267,68 @@ class JoinColumn {
     this.referencedColumn = 'id',
     this.nullable = false,
   });
+}
+
+/// Custom column for junction tables
+///
+/// Use this to add extra attributes to ManyToMany junction tables.
+///
+/// Example:
+/// ```dart
+/// @ManyToMany(
+///   targetEntity: RoleEntity,
+///   joinTable: JoinTable(
+///     name: 'user_roles',
+///     joinColumn: JoinColumn(name: 'user_id'),
+///     inverseJoinColumn: JoinColumn(name: 'role_id'),
+///     extraColumns: [
+///       JunctionColumn(name: 'assigned_at', type: JunctionColumnType.timestamp, defaultValue: 'CURRENT_TIMESTAMP'),
+///       JunctionColumn(name: 'assigned_by', type: JunctionColumnType.integer, nullable: true),
+///       JunctionColumn(name: 'is_active', type: JunctionColumnType.boolean, defaultValue: 'true'),
+///     ],
+///   ),
+/// )
+/// List<RoleEntity>? roles;
+/// ```
+class JunctionColumn {
+  /// Column name
+  final String name;
+
+  /// Column type
+  final JunctionColumnType type;
+
+  /// Whether this column is nullable
+  final bool nullable;
+
+  /// Default value (SQL expression as string)
+  final String? defaultValue;
+
+  /// Whether this column should be unique
+  final bool unique;
+
+  const JunctionColumn({
+    required this.name,
+    required this.type,
+    this.nullable = false,
+    this.defaultValue,
+    this.unique = false,
+  });
+}
+
+/// Column types for junction table extra columns
+enum JunctionColumnType {
+  integer,
+  bigint,
+  text,
+  varchar,
+  boolean,
+  real,
+  doublePrecision,
+  timestamp,
+  timestamptz,
+  date,
+  time,
+  json,
+  jsonb,
+  uuid,
 }

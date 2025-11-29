@@ -326,6 +326,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     final joinTablePattern = RegExp(r'joinTable:\s*JoinTable');
     final namePattern = RegExp(r'''name:\s*['"](\w+)['"]''');
     final createIndexPattern = RegExp(r'createIndex:\s*(true|false)');
+    final extraColumnsPattern = RegExp(r'extraColumns:\s*\[([^\]]*)\]');
 
     for (final field in element.fields) {
       if (field.isStatic) continue;
@@ -352,6 +353,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
             String inverseColumnName;
             String inverseColumnRef;
             bool createIndex = true;
+            final extraColumns = <_ExtraColumnInfo>[];
 
             // Get target table name from map or fallback to snake_case
             final targetTableName =
@@ -379,12 +381,19 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
               createIndex = indexMatch.group(1) == 'true';
             }
 
+            // Parse extra columns from annotation
+            final extraColumnsMatch = extraColumnsPattern.firstMatch(source);
+            if (extraColumnsMatch != null) {
+              final columnsContent = extraColumnsMatch.group(1)!;
+              extraColumns.addAll(_parseExtraColumns(columnsContent));
+            }
+
             relations.add(
               _ManyToManyInfo(
                 ownerEntityName: element.name!,
                 ownerTableName: ownerTableName,
                 targetEntityName: targetEntityName,
-                fieldName: field.name!, // Fix null safety for field.name
+                fieldName: field.name!,
                 joinTableName: joinTableName,
                 joinColumnName: joinColumnName,
                 joinColumnRef: joinColumnRef,
@@ -392,6 +401,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
                 inverseColumnRef: inverseColumnRef,
                 isOwningSide: true,
                 createIndex: createIndex,
+                extraColumns: extraColumns,
               ),
             );
           } else {
@@ -418,6 +428,99 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     }
 
     return relations;
+  }
+
+  /// Parse extra columns from annotation source
+  List<_ExtraColumnInfo> _parseExtraColumns(String columnsContent) {
+    final columns = <_ExtraColumnInfo>[];
+
+    // Pattern to match JunctionColumn(...) entries
+    final columnPattern = RegExp(
+      r'JunctionColumn\s*\(([^)]+)\)',
+      multiLine: true,
+    );
+
+    for (final match in columnPattern.allMatches(columnsContent)) {
+      final content = match.group(1)!;
+
+      // Extract name
+      final nameMatch = RegExp(
+        r'''name:\s*['"](\w+)['"]''',
+      ).firstMatch(content);
+      if (nameMatch == null) continue;
+      final name = nameMatch.group(1)!;
+
+      // Extract type
+      final typeMatch = RegExp(
+        r'type:\s*JunctionColumnType\.(\w+)',
+      ).firstMatch(content);
+      final typeStr = typeMatch?.group(1) ?? 'text';
+      final sqlType = _junctionColumnTypeToSql(typeStr);
+
+      // Extract nullable
+      final nullableMatch = RegExp(
+        r'nullable:\s*(true|false)',
+      ).firstMatch(content);
+      final nullable = nullableMatch?.group(1) == 'true';
+
+      // Extract defaultValue
+      final defaultMatch = RegExp(
+        r'''defaultValue:\s*['"]([^'"]+)['"]''',
+      ).firstMatch(content);
+      final defaultValue = defaultMatch?.group(1);
+
+      // Extract unique
+      final uniqueMatch = RegExp(r'unique:\s*(true|false)').firstMatch(content);
+      final unique = uniqueMatch?.group(1) == 'true';
+
+      columns.add(
+        _ExtraColumnInfo(
+          name: name,
+          type: sqlType,
+          nullable: nullable,
+          defaultValue: defaultValue,
+          unique: unique,
+        ),
+      );
+    }
+
+    return columns;
+  }
+
+  /// Convert JunctionColumnType enum value to SQL type
+  String _junctionColumnTypeToSql(String type) {
+    switch (type) {
+      case 'integer':
+        return 'INTEGER';
+      case 'bigint':
+        return 'BIGINT';
+      case 'text':
+        return 'TEXT';
+      case 'varchar':
+        return 'VARCHAR(255)';
+      case 'boolean':
+        return 'BOOLEAN';
+      case 'real':
+        return 'REAL';
+      case 'doublePrecision':
+        return 'DOUBLE PRECISION';
+      case 'timestamp':
+        return 'TIMESTAMP';
+      case 'timestamptz':
+        return 'TIMESTAMPTZ';
+      case 'date':
+        return 'DATE';
+      case 'time':
+        return 'TIME';
+      case 'json':
+        return 'JSON';
+      case 'jsonb':
+        return 'JSONB';
+      case 'uuid':
+        return 'UUID';
+      default:
+        return 'TEXT';
+    }
   }
 
   /// Validate ManyToMany relationships
@@ -513,6 +616,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
           inverseColumnName: relation.inverseColumnName,
           inverseColumnRef: relation.inverseColumnRef,
           createIndex: relation.createIndex,
+          extraColumns: relation.extraColumns,
         );
       }
     }
@@ -1242,6 +1346,7 @@ class _ManyToManyInfo {
   final bool isOwningSide;
   final String? mappedBy;
   final bool createIndex;
+  final List<_ExtraColumnInfo> extraColumns;
 
   _ManyToManyInfo({
     required this.ownerEntityName,
@@ -1256,6 +1361,7 @@ class _ManyToManyInfo {
     required this.isOwningSide,
     this.mappedBy,
     required this.createIndex,
+    this.extraColumns = const [],
   });
 }
 
@@ -1268,6 +1374,7 @@ class _JunctionTableInfo {
   final String inverseColumnName;
   final String inverseColumnRef;
   final bool createIndex;
+  final List<_ExtraColumnInfo> extraColumns;
 
   _JunctionTableInfo({
     required this.tableName,
@@ -1278,7 +1385,33 @@ class _JunctionTableInfo {
     required this.inverseColumnName,
     required this.inverseColumnRef,
     required this.createIndex,
+    this.extraColumns = const [],
   });
+}
+
+/// Extra column info for junction tables
+class _ExtraColumnInfo {
+  final String name;
+  final String type;
+  final bool nullable;
+  final String? defaultValue;
+  final bool unique;
+
+  _ExtraColumnInfo({
+    required this.name,
+    required this.type,
+    this.nullable = false,
+    this.defaultValue,
+    this.unique = false,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'type': type,
+    'nullable': nullable,
+    'defaultValue': defaultValue,
+    'unique': unique,
+  };
 }
 
 Builder dbGeneratorBuilder(BuilderOptions options) {

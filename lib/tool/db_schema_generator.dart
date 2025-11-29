@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:analyzer/dart/constant/value.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
@@ -96,11 +99,68 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
       entityToTableName,
     );
 
+    // Save junction schemas to .dorm/schemas/ as JSON files
+    final inputPath = buildStep.inputId.path;
+    final packageRoot = inputPath.split('lib/').first;
+    await _saveJunctionSchemas(packageRoot, junctionTables);
+
     return _generateSchemaCode(
       className: className!,
       entities: entities,
       junctionTables: junctionTables,
     );
+  }
+
+  /// Save junction table schemas to .dorm/schemas/ directory as JSON files
+  Future<void> _saveJunctionSchemas(
+    String packageRoot,
+    List<_JunctionTableInfo> junctionTables,
+  ) async {
+    if (junctionTables.isEmpty) return;
+
+    final schemasDir = Directory('$packageRoot.dorm/schemas');
+    if (!await schemasDir.exists()) {
+      await schemasDir.create(recursive: true);
+    }
+
+    for (final junction in junctionTables) {
+      final schema = {
+        'tableName': junction.tableName,
+        'type': 'junction',
+        'ownerTable': junction.ownerTableName,
+        'targetTable': junction.targetTableName,
+        'columns': [
+          {
+            'name': junction.joinColumnName,
+            'type': 'INTEGER',
+            'nullable': false,
+            'primaryKey': false,
+            'foreignKey': {
+              'referencedTable': junction.ownerTableName,
+              'referencedColumn': junction.joinColumnRef,
+            },
+          },
+          {
+            'name': junction.inverseColumnName,
+            'type': 'INTEGER',
+            'nullable': false,
+            'primaryKey': false,
+            'foreignKey': {
+              'referencedTable': junction.targetTableName,
+              'referencedColumn': junction.inverseColumnRef,
+            },
+          },
+          // Add extra columns
+          ...junction.extraColumns.map((col) => col.toJson()),
+        ],
+        'createIndex': junction.createIndex,
+      };
+
+      final file = File('${schemasDir.path}/${junction.tableName}.schema.json');
+      await file.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(schema),
+      );
+    }
   }
 
   /// Extract full schema info from an entity class
@@ -426,6 +486,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     final joinTablePattern = RegExp(r'joinTable:\s*JoinTable');
     final namePattern = RegExp(r'''name:\s*['"](\w+)['"]''');
     final createIndexPattern = RegExp(r'createIndex:\s*(true|false)');
+    final extraColumnsPattern = RegExp(r'extraColumns:\s*\[([^\]]*)\]');
 
     for (final field in element.fields) {
       if (field.isStatic) continue;
@@ -449,6 +510,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
             String inverseColumnName;
             String inverseColumnRef;
             bool createIndex = true;
+            final extraColumns = <_ExtraColumnInfo>[];
 
             // Get target table name from map or fallback to snake_case
             final targetTableName =
@@ -472,6 +534,13 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
               createIndex = indexMatch.group(1) == 'true';
             }
 
+            // Parse extra columns from annotation
+            final extraColumnsMatch = extraColumnsPattern.firstMatch(source);
+            if (extraColumnsMatch != null) {
+              final columnsContent = extraColumnsMatch.group(1)!;
+              extraColumns.addAll(_parseExtraColumns(columnsContent));
+            }
+
             relations.add(
               _ManyToManyInfo(
                 ownerEntityName: element.name!,
@@ -485,6 +554,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
                 inverseColumnRef: inverseColumnRef,
                 isOwningSide: true,
                 createIndex: createIndex,
+                extraColumns: extraColumns,
               ),
             );
           } else {
@@ -500,7 +570,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
                 inverseColumnName: '',
                 inverseColumnRef: '',
                 isOwningSide: false,
-                mappedBy: mappedByMatch?.group(1),
+                mappedBy: mappedByMatch.group(1),
                 createIndex: false,
               ),
             );
@@ -510,6 +580,99 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     }
 
     return relations;
+  }
+
+  /// Parse extra columns from annotation source
+  List<_ExtraColumnInfo> _parseExtraColumns(String columnsContent) {
+    final columns = <_ExtraColumnInfo>[];
+
+    // Pattern to match JunctionColumn(...) entries
+    final columnPattern = RegExp(
+      r'JunctionColumn\s*\(([^)]+)\)',
+      multiLine: true,
+    );
+
+    for (final match in columnPattern.allMatches(columnsContent)) {
+      final content = match.group(1)!;
+
+      // Extract name
+      final nameMatch = RegExp(
+        r'''name:\s*['"](\w+)['"]''',
+      ).firstMatch(content);
+      if (nameMatch == null) continue;
+      final name = nameMatch.group(1)!;
+
+      // Extract type
+      final typeMatch = RegExp(
+        r'type:\s*JunctionColumnType\.(\w+)',
+      ).firstMatch(content);
+      final typeStr = typeMatch?.group(1) ?? 'text';
+      final sqlType = _junctionColumnTypeToSql(typeStr);
+
+      // Extract nullable
+      final nullableMatch = RegExp(
+        r'nullable:\s*(true|false)',
+      ).firstMatch(content);
+      final nullable = nullableMatch?.group(1) == 'true';
+
+      // Extract defaultValue
+      final defaultMatch = RegExp(
+        r'''defaultValue:\s*['"]([^'"]+)['"]''',
+      ).firstMatch(content);
+      final defaultValue = defaultMatch?.group(1);
+
+      // Extract unique
+      final uniqueMatch = RegExp(r'unique:\s*(true|false)').firstMatch(content);
+      final unique = uniqueMatch?.group(1) == 'true';
+
+      columns.add(
+        _ExtraColumnInfo(
+          name: name,
+          type: sqlType,
+          nullable: nullable,
+          defaultValue: defaultValue,
+          unique: unique,
+        ),
+      );
+    }
+
+    return columns;
+  }
+
+  /// Convert JunctionColumnType enum value to SQL type
+  String _junctionColumnTypeToSql(String type) {
+    switch (type) {
+      case 'integer':
+        return 'INTEGER';
+      case 'bigint':
+        return 'BIGINT';
+      case 'text':
+        return 'TEXT';
+      case 'varchar':
+        return 'VARCHAR(255)';
+      case 'boolean':
+        return 'BOOLEAN';
+      case 'real':
+        return 'REAL';
+      case 'doublePrecision':
+        return 'DOUBLE PRECISION';
+      case 'timestamp':
+        return 'TIMESTAMP';
+      case 'timestamptz':
+        return 'TIMESTAMPTZ';
+      case 'date':
+        return 'DATE';
+      case 'time':
+        return 'TIME';
+      case 'json':
+        return 'JSON';
+      case 'jsonb':
+        return 'JSONB';
+      case 'uuid':
+        return 'UUID';
+      default:
+        return 'TEXT';
+    }
   }
 
   /// Deduplicate junction tables - keep only owning side definitions
@@ -536,6 +699,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
           inverseColumnName: relation.inverseColumnName,
           inverseColumnRef: relation.inverseColumnRef,
           createIndex: relation.createIndex,
+          extraColumns: relation.extraColumns,
         );
       }
     }
@@ -783,6 +947,17 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     buffer.writeln(
       "    ColumnSchema(name: '${j.inverseColumnName}', type: 'INTEGER', nullable: false, primaryKey: false),",
     );
+
+    // Add extra columns
+    for (final col in j.extraColumns) {
+      final defaultStr = col.defaultValue != null
+          ? ", defaultValue: '${col.defaultValue}'"
+          : '';
+      buffer.writeln(
+        "    ColumnSchema(name: '${col.name}', type: '${col.type}', nullable: ${col.nullable}, primaryKey: false, unique: ${col.unique}$defaultStr),",
+      );
+    }
+
     buffer.writeln('  ],');
     buffer.writeln(');');
     buffer.writeln();
@@ -902,6 +1077,7 @@ class _ManyToManyInfo {
   final bool isOwningSide;
   final String? mappedBy;
   final bool createIndex;
+  final List<_ExtraColumnInfo> extraColumns;
 
   _ManyToManyInfo({
     required this.ownerEntityName,
@@ -916,6 +1092,7 @@ class _ManyToManyInfo {
     required this.isOwningSide,
     this.mappedBy,
     required this.createIndex,
+    this.extraColumns = const [],
   });
 }
 
@@ -928,6 +1105,7 @@ class _JunctionTableInfo {
   final String inverseColumnName;
   final String inverseColumnRef;
   final bool createIndex;
+  final List<_ExtraColumnInfo> extraColumns;
 
   _JunctionTableInfo({
     required this.tableName,
@@ -938,7 +1116,33 @@ class _JunctionTableInfo {
     required this.inverseColumnName,
     required this.inverseColumnRef,
     required this.createIndex,
+    this.extraColumns = const [],
   });
+}
+
+/// Extra column info for junction tables
+class _ExtraColumnInfo {
+  final String name;
+  final String type;
+  final bool nullable;
+  final String? defaultValue;
+  final bool unique;
+
+  _ExtraColumnInfo({
+    required this.name,
+    required this.type,
+    this.nullable = false,
+    this.defaultValue,
+    this.unique = false,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'type': type,
+    'nullable': nullable,
+    'defaultValue': defaultValue,
+    'unique': unique,
+  };
 }
 
 Builder dbSchemaGeneratorBuilder(BuilderOptions options) {
