@@ -48,27 +48,20 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     final entities = <_EntityInfo>[];
     final manyToManyRelations = <_ManyToManyInfo>[];
     final entityElements = <String, ClassElement>{};
+    final entityToTableName =
+        <String, String>{}; // Map entity name to table name
 
     if (entitiesReader != null && !entitiesReader.isNull) {
       final entityList = entitiesReader.listValue;
 
-      // First pass: collect all entity elements
+      // First pass: collect all entity elements and their table names
       for (final entityValue in entityList) {
         final typeValue = entityValue.toTypeValue();
         if (typeValue != null) {
           final entityElement = typeValue.element;
           if (entityElement is ClassElement && entityElement.name != null) {
             entityElements[entityElement.name!] = entityElement;
-          }
-        }
-      }
 
-      // Second pass: extract entity info and relationships
-      for (final entityValue in entityList) {
-        final typeValue = entityValue.toTypeValue();
-        if (typeValue != null) {
-          final entityElement = typeValue.element;
-          if (entityElement is ClassElement && entityElement.name != null) {
             // Extract table name from @Entity annotation
             String tableName = _toSnakeCase(entityElement.name!);
             for (final meta in entityElement.metadata.annotations) {
@@ -83,6 +76,18 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
                 break;
               }
             }
+            entityToTableName[entityElement.name!] = tableName;
+          }
+        }
+      }
+
+      // Second pass: extract entity info and relationships
+      for (final entityValue in entityList) {
+        final typeValue = entityValue.toTypeValue();
+        if (typeValue != null) {
+          final entityElement = typeValue.element;
+          if (entityElement is ClassElement && entityElement.name != null) {
+            final tableName = entityToTableName[entityElement.name!]!;
 
             // Extract fields/columns from entity
             final columns = _extractColumnsFromEntity(entityElement);
@@ -92,6 +97,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
               entityElement,
               tableName,
               entityElements,
+              entityToTableName,
             );
             manyToManyRelations.addAll(m2mRelations);
 
@@ -121,7 +127,10 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     }
 
     // Deduplicate junction tables (keep only owning side)
-    final junctionTables = _deduplicateJunctionTables(manyToManyRelations);
+    final junctionTables = _deduplicateJunctionTables(
+      manyToManyRelations,
+      entityToTableName,
+    );
 
     // Generate schema hash to detect changes (include junction tables)
     final schemaHash = _generateSchemaHash(entities, junctionTables);
@@ -308,6 +317,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     ClassElement element,
     String ownerTableName,
     Map<String, ClassElement> entityElements,
+    Map<String, String> entityToTableName,
   ) {
     final relations = <_ManyToManyInfo>[];
     // Regex patterns for parsing annotations
@@ -343,20 +353,24 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
             String inverseColumnRef;
             bool createIndex = true;
 
+            // Get target table name from map or fallback to snake_case
+            final targetTableName =
+                entityToTableName[targetEntityName] ??
+                _toSnakeCase(targetEntityName);
+
             // Try to extract table name from annotation
             final nameMatch = namePattern.firstMatch(source);
             if (nameMatch != null) {
               joinTableName = nameMatch.group(1)!;
             } else {
               // Auto-generate junction table name
-              joinTableName =
-                  '${ownerTableName}_${_toSnakeCase(targetEntityName)}';
+              joinTableName = '${ownerTableName}_$targetTableName';
             }
 
             // Default column names (can be customized via JoinColumn in annotation)
             joinColumnName = '${ownerTableName}_id';
             joinColumnRef = 'id';
-            inverseColumnName = '${_toSnakeCase(targetEntityName)}_id';
+            inverseColumnName = '${targetTableName}_id';
             inverseColumnRef = 'id';
 
             // Check createIndex
@@ -476,23 +490,79 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
   }
 
   /// Deduplicate junction tables - keep only owning side definitions
+  /// Also handles the case where both sides have mappedBy (no explicit owning side)
   List<_JunctionTableInfo> _deduplicateJunctionTables(
     List<_ManyToManyInfo> relations,
+    Map<String, String> entityToTableName,
   ) {
     final tables = <String, _JunctionTableInfo>{};
 
+    // First, add all explicit owning side relations
     for (final relation in relations.where((r) => r.isOwningSide)) {
       if (!tables.containsKey(relation.joinTableName)) {
+        // Look up target table name from the map
+        final targetTableName =
+            entityToTableName[relation.targetEntityName] ??
+            _toSnakeCase(relation.targetEntityName);
         tables[relation.joinTableName] = _JunctionTableInfo(
           tableName: relation.joinTableName,
           ownerTableName: relation.ownerTableName,
-          targetTableName: _toSnakeCase(relation.targetEntityName),
+          targetTableName: targetTableName,
           joinColumnName: relation.joinColumnName,
           joinColumnRef: relation.joinColumnRef,
           inverseColumnName: relation.inverseColumnName,
           inverseColumnRef: relation.inverseColumnRef,
           createIndex: relation.createIndex,
         );
+      }
+    }
+
+    // Handle case where both sides have mappedBy (no explicit owning side)
+    // Group inverse relations by their entity pair
+    final inverseRelations = relations.where((r) => !r.isOwningSide).toList();
+    final processedPairs = <String>{};
+
+    for (final relation in inverseRelations) {
+      // Create a canonical key for this entity pair (sorted alphabetically)
+      final entities = [relation.ownerEntityName, relation.targetEntityName]
+        ..sort();
+      final pairKey = entities.join('_');
+
+      // Skip if we already processed this pair
+      if (processedPairs.contains(pairKey)) continue;
+
+      // Check if there's an owning side for this pair
+      final hasOwningSide = relations.any(
+        (r) =>
+            r.isOwningSide &&
+            ((r.ownerEntityName == relation.ownerEntityName &&
+                    r.targetEntityName == relation.targetEntityName) ||
+                (r.ownerEntityName == relation.targetEntityName &&
+                    r.targetEntityName == relation.ownerEntityName)),
+      );
+
+      if (!hasOwningSide) {
+        // No owning side - auto-generate junction table
+        // Use alphabetically first entity's TABLE NAME for consistency
+        final ownerTable =
+            entityToTableName[entities[0]] ?? _toSnakeCase(entities[0]);
+        final targetTable =
+            entityToTableName[entities[1]] ?? _toSnakeCase(entities[1]);
+        final joinTableName = '${ownerTable}_$targetTable';
+
+        if (!tables.containsKey(joinTableName)) {
+          tables[joinTableName] = _JunctionTableInfo(
+            tableName: joinTableName,
+            ownerTableName: ownerTable,
+            targetTableName: targetTable,
+            joinColumnName: '${ownerTable}_id',
+            joinColumnRef: 'id',
+            inverseColumnName: '${targetTable}_id',
+            inverseColumnRef: 'id',
+            createIndex: true,
+          );
+        }
+        processedPairs.add(pairKey);
       }
     }
 

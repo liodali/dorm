@@ -29,27 +29,20 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     final entities = <_EntitySchemaInfo>[];
     final manyToManyRelations = <_ManyToManyInfo>[];
     final entityElements = <String, ClassElement>{};
+    final entityToTableName =
+        <String, String>{}; // Map entity name to table name
 
     if (entitiesReader != null && !entitiesReader.isNull) {
       final entityList = entitiesReader.listValue;
 
-      // First pass: collect all entity elements
+      // First pass: collect all entity elements and their table names
       for (final entityValue in entityList) {
         final typeValue = entityValue.toTypeValue();
         if (typeValue != null) {
           final entityElement = typeValue.element;
           if (entityElement is ClassElement && entityElement.name != null) {
             entityElements[entityElement.name!] = entityElement;
-          }
-        }
-      }
 
-      // Second pass: extract entity info and relationships
-      for (final entityValue in entityList) {
-        final typeValue = entityValue.toTypeValue();
-        if (typeValue != null) {
-          final entityElement = typeValue.element;
-          if (entityElement is ClassElement && entityElement.name != null) {
             // Extract table name from @Entity annotation
             String tableName = _toSnakeCase(entityElement.name!);
             for (final meta in entityElement.metadata.annotations) {
@@ -64,12 +57,25 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
                 break;
               }
             }
+            entityToTableName[entityElement.name!] = tableName;
+          }
+        }
+      }
+
+      // Second pass: extract entity info and relationships
+      for (final entityValue in entityList) {
+        final typeValue = entityValue.toTypeValue();
+        if (typeValue != null) {
+          final entityElement = typeValue.element;
+          if (entityElement is ClassElement && entityElement.name != null) {
+            final tableName = entityToTableName[entityElement.name!]!;
 
             // Extract ManyToMany relationships
             final m2mRelations = _extractManyToManyRelations(
               entityElement,
               tableName,
               entityElements,
+              entityToTableName,
             );
             manyToManyRelations.addAll(m2mRelations);
 
@@ -85,7 +91,10 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     }
 
     // Deduplicate junction tables (keep only owning side)
-    final junctionTables = _deduplicateJunctionTables(manyToManyRelations);
+    final junctionTables = _deduplicateJunctionTables(
+      manyToManyRelations,
+      entityToTableName,
+    );
 
     return _generateSchemaCode(
       className: className!,
@@ -196,16 +205,18 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
 
       final isUnique = _hasAnnotation(field, 'Unique');
       final isId = _hasAnnotation(field, 'Id');
-      final isNullable = !isId &&
-          field.type.nullabilitySuffix.toString().contains('question');
+      final isNullable =
+          !isId && field.type.nullabilitySuffix.toString().contains('question');
 
-      columns.add(_ColumnInfo(
-        name: _toSnakeCase(field.displayName),
-        type: _getDartToSqlType(field.type),
-        nullable: isNullable,
-        primaryKey: isId,
-        unique: isUnique,
-      ));
+      columns.add(
+        _ColumnInfo(
+          name: _toSnakeCase(field.displayName),
+          type: _getDartToSqlType(field.type),
+          nullable: isNullable,
+          primaryKey: isId,
+          unique: isUnique,
+        ),
+      );
     }
 
     return columns;
@@ -223,17 +234,19 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
         final columns = value.getField('columns')?.toListValue();
         if (columns == null || columns.isEmpty) continue;
 
-        final columnNames =
-            columns.map((c) => c.toStringValue()!).toList();
-        final name = value.getField('name')?.toStringValue() ??
+        final columnNames = columns.map((c) => c.toStringValue()!).toList();
+        final name =
+            value.getField('name')?.toStringValue() ??
             'idx_${tableName}_${columnNames.join('_')}';
         final unique = value.getField('unique')?.toBoolValue() ?? false;
 
-        indexes.add(_IndexInfo(
-          name: name,
-          columns: columnNames,
-          unique: unique,
-        ));
+        indexes.add(
+          _IndexInfo(
+            name: name,
+            columns: columnNames,
+            unique: unique,
+          ),
+        );
       }
     }
 
@@ -254,19 +267,23 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
       if (fkAnnotation != null) {
         final value = fkAnnotation.computeConstantValue();
         if (value != null) {
-          final column = value.getField('column')?.toStringValue() ??
+          final column =
+              value.getField('column')?.toStringValue() ??
               _toSnakeCase(field.displayName);
-          final referencedTable =
-              value.getField('referencedTable')?.toStringValue();
+          final referencedTable = value
+              .getField('referencedTable')
+              ?.toStringValue();
           final referencedColumn =
               value.getField('referencedColumn')?.toStringValue() ?? 'id';
 
           if (referencedTable != null) {
-            foreignKeys.add(_ForeignKeyInfo(
-              column: column,
-              referencedTable: referencedTable,
-              referencedColumn: referencedColumn,
-            ));
+            foreignKeys.add(
+              _ForeignKeyInfo(
+                column: column,
+                referencedTable: referencedTable,
+                referencedColumn: referencedColumn,
+              ),
+            );
           }
         }
       }
@@ -274,11 +291,13 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
       else if (field.displayName.endsWith('Id') ||
           field.displayName.endsWith('_id')) {
         final refTable = _inferReferencedTable(field.displayName);
-        foreignKeys.add(_ForeignKeyInfo(
-          column: _toSnakeCase(field.displayName),
-          referencedTable: refTable,
-          referencedColumn: 'id',
-        ));
+        foreignKeys.add(
+          _ForeignKeyInfo(
+            column: _toSnakeCase(field.displayName),
+            referencedTable: refTable,
+            referencedColumn: 'id',
+          ),
+        );
       }
     }
 
@@ -308,13 +327,14 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
         final value = annotation.computeConstantValue();
         final columns = value?.getField('columns')?.toListValue();
         if (columns != null && columns.isNotEmpty) {
-          final columnNames =
-              columns.map((c) => c.toStringValue()!).toList();
+          final columnNames = columns.map((c) => c.toStringValue()!).toList();
           final name = value?.getField('name')?.toStringValue();
-          constraints.add(_UniqueConstraintInfo(
-            columns: columnNames,
-            name: name,
-          ));
+          constraints.add(
+            _UniqueConstraintInfo(
+              columns: columnNames,
+              name: name,
+            ),
+          );
         }
       }
     }
@@ -335,10 +355,12 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
         final expression = value?.getField('expression')?.toStringValue();
         final name = value?.getField('name')?.toStringValue();
         if (expression != null) {
-          constraints.add(_CheckConstraintInfo(
-            expression: expression,
-            name: name,
-          ));
+          constraints.add(
+            _CheckConstraintInfo(
+              expression: expression,
+              name: name,
+            ),
+          );
         }
       }
     }
@@ -396,6 +418,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     ClassElement element,
     String ownerTableName,
     Map<String, ClassElement> entityElements,
+    Map<String, String> entityToTableName,
   ) {
     final relations = <_ManyToManyInfo>[];
     final targetEntityPattern = RegExp(r'targetEntity:\s*(\w+)');
@@ -427,17 +450,21 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
             String inverseColumnRef;
             bool createIndex = true;
 
+            // Get target table name from map or fallback to snake_case
+            final targetTableName =
+                entityToTableName[targetEntityName] ??
+                _toSnakeCase(targetEntityName);
+
             final nameMatch = namePattern.firstMatch(source);
             if (nameMatch != null) {
               joinTableName = nameMatch.group(1)!;
             } else {
-              joinTableName =
-                  '${ownerTableName}_${_toSnakeCase(targetEntityName)}';
+              joinTableName = '${ownerTableName}_$targetTableName';
             }
 
             joinColumnName = '${ownerTableName}_id';
             joinColumnRef = 'id';
-            inverseColumnName = '${_toSnakeCase(targetEntityName)}_id';
+            inverseColumnName = '${targetTableName}_id';
             inverseColumnRef = 'id';
 
             final indexMatch = createIndexPattern.firstMatch(source);
@@ -486,23 +513,79 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
   }
 
   /// Deduplicate junction tables - keep only owning side definitions
+  /// Also handles the case where both sides have mappedBy (no explicit owning side)
   List<_JunctionTableInfo> _deduplicateJunctionTables(
     List<_ManyToManyInfo> relations,
+    Map<String, String> entityToTableName,
   ) {
     final tables = <String, _JunctionTableInfo>{};
 
+    // First, add all explicit owning side relations
     for (final relation in relations.where((r) => r.isOwningSide)) {
       if (!tables.containsKey(relation.joinTableName)) {
+        // Look up target table name from the map
+        final targetTableName =
+            entityToTableName[relation.targetEntityName] ??
+            _toSnakeCase(relation.targetEntityName);
         tables[relation.joinTableName] = _JunctionTableInfo(
           tableName: relation.joinTableName,
           ownerTableName: relation.ownerTableName,
-          targetTableName: _toSnakeCase(relation.targetEntityName),
+          targetTableName: targetTableName,
           joinColumnName: relation.joinColumnName,
           joinColumnRef: relation.joinColumnRef,
           inverseColumnName: relation.inverseColumnName,
           inverseColumnRef: relation.inverseColumnRef,
           createIndex: relation.createIndex,
         );
+      }
+    }
+
+    // Handle case where both sides have mappedBy (no explicit owning side)
+    // Group inverse relations by their entity pair
+    final inverseRelations = relations.where((r) => !r.isOwningSide).toList();
+    final processedPairs = <String>{};
+
+    for (final relation in inverseRelations) {
+      // Create a canonical key for this entity pair (sorted alphabetically)
+      final entities = [relation.ownerEntityName, relation.targetEntityName]
+        ..sort();
+      final pairKey = entities.join('_');
+
+      // Skip if we already processed this pair
+      if (processedPairs.contains(pairKey)) continue;
+
+      // Check if there's an owning side for this pair
+      final hasOwningSide = relations.any(
+        (r) =>
+            r.isOwningSide &&
+            ((r.ownerEntityName == relation.ownerEntityName &&
+                    r.targetEntityName == relation.targetEntityName) ||
+                (r.ownerEntityName == relation.targetEntityName &&
+                    r.targetEntityName == relation.ownerEntityName)),
+      );
+
+      if (!hasOwningSide) {
+        // No owning side - auto-generate junction table
+        // Use alphabetically first entity's TABLE NAME for consistency
+        final ownerTable =
+            entityToTableName[entities[0]] ?? _toSnakeCase(entities[0]);
+        final targetTable =
+            entityToTableName[entities[1]] ?? _toSnakeCase(entities[1]);
+        final joinTableName = '${ownerTable}_$targetTable';
+
+        if (!tables.containsKey(joinTableName)) {
+          tables[joinTableName] = _JunctionTableInfo(
+            tableName: joinTableName,
+            ownerTableName: ownerTable,
+            targetTableName: targetTable,
+            joinColumnName: '${ownerTable}_id',
+            joinColumnRef: 'id',
+            inverseColumnName: '${targetTable}_id',
+            inverseColumnRef: 'id',
+            createIndex: true,
+          );
+        }
+        processedPairs.add(pairKey);
       }
     }
 
@@ -531,7 +614,8 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
         .map((e) => '_${_toCamelCase(e.className)}Schema')
         .join(',\n  ');
     buffer.writeln(
-        'final _${_toCamelCase(className)}EntitySchemas = <DatabaseSchema>[');
+      'final _${_toCamelCase(className)}EntitySchemas = <DatabaseSchema>[',
+    );
     buffer.writeln('  $schemaRefs,');
     buffer.writeln('];');
     buffer.writeln();
@@ -544,12 +628,15 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     }
 
     // Generate junction schemas list
-    buffer.writeln('/// All junction table schemas for ManyToMany relationships');
+    buffer.writeln(
+      '/// All junction table schemas for ManyToMany relationships',
+    );
     final junctionSchemaRefs = junctionTables
         .map((j) => '_${_toCamelCase(j.tableName)}Schema')
         .join(',\n  ');
     buffer.writeln(
-        'final _${_toCamelCase(className)}JunctionSchemas = <DatabaseSchema>[');
+      'final _${_toCamelCase(className)}JunctionSchemas = <DatabaseSchema>[',
+    );
     if (junctionTables.isNotEmpty) {
       buffer.writeln('  $junctionSchemaRefs,');
     }
@@ -561,13 +648,17 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     buffer.writeln('extension ${className}Schemas on $className {');
     buffer.writeln('  /// Get all entity schemas for this database');
     buffer.writeln(
-        '  List<DatabaseSchema> get databaseSchemas => _${_toCamelCase(className)}EntitySchemas;');
+      '  List<DatabaseSchema> get databaseSchemas => _${_toCamelCase(className)}EntitySchemas;',
+    );
     buffer.writeln();
     buffer.writeln('  /// Get all junction table schemas for this database');
     buffer.writeln(
-        '  List<DatabaseSchema> get databaseJunctionSchemas => _${_toCamelCase(className)}JunctionSchemas;');
+      '  List<DatabaseSchema> get databaseJunctionSchemas => _${_toCamelCase(className)}JunctionSchemas;',
+    );
     buffer.writeln();
-    buffer.writeln('  /// Get all schemas (entities + junctions) for this database');
+    buffer.writeln(
+      '  /// Get all schemas (entities + junctions) for this database',
+    );
     buffer.writeln('  List<DatabaseSchema> get allSchemas => [');
     buffer.writeln('    ...databaseSchemas,');
     buffer.writeln('    ...databaseJunctionSchemas,');
@@ -578,10 +669,13 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     // Generate per-entity schema extensions for backward compatibility
     for (final entity in entities) {
       buffer.writeln('/// Schema extension for ${entity.className}');
-      buffer.writeln('extension ${entity.className}Schema on ${entity.className} {');
+      buffer.writeln(
+        'extension ${entity.className}Schema on ${entity.className} {',
+      );
       buffer.writeln('  /// Get the database schema for this entity');
       buffer.writeln(
-          '  static DatabaseSchema get schema => _${_toCamelCase(entity.className)}Schema;');
+        '  static DatabaseSchema get schema => _${_toCamelCase(entity.className)}Schema;',
+      );
       buffer.writeln();
       buffer.writeln('  /// Table name for this entity');
       buffer.writeln("  static String get tableName => '${entity.tableName}';");
@@ -596,7 +690,9 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     final buffer = StringBuffer();
 
     buffer.writeln('/// Generated schema for ${entity.className}');
-    buffer.writeln('const _${_toCamelCase(entity.className)}Schema = DatabaseSchema(');
+    buffer.writeln(
+      'const _${_toCamelCase(entity.className)}Schema = DatabaseSchema(',
+    );
     buffer.writeln("  tableName: '${entity.tableName}',");
     buffer.writeln('  columns: [');
 
@@ -618,7 +714,8 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
       for (final idx in entity.indexes) {
         final cols = idx.columns.map((c) => "'$c'").join(', ');
         buffer.writeln(
-            "    IndexSchema(name: '${idx.name}', columns: [$cols], unique: ${idx.unique}),");
+          "    IndexSchema(name: '${idx.name}', columns: [$cols], unique: ${idx.unique}),",
+        );
       }
       buffer.writeln('  ],');
     }
@@ -628,7 +725,8 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
       buffer.writeln('  foreignKeys: [');
       for (final fk in entity.foreignKeys) {
         buffer.writeln(
-            "    ForeignKey(column: '${fk.column}', referencedTable: '${fk.referencedTable}', referencedColumn: '${fk.referencedColumn}'),");
+          "    ForeignKey(column: '${fk.column}', referencedTable: '${fk.referencedTable}', referencedColumn: '${fk.referencedColumn}'),",
+        );
       }
       buffer.writeln('  ],');
     }
@@ -656,7 +754,8 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
       for (final cc in entity.checkConstraints) {
         final nameParam = cc.name != null ? ", name: '${cc.name}'" : '';
         buffer.writeln(
-            "    CheckConstraint(expression: '${cc.expression}'$nameParam),");
+          "    CheckConstraint(expression: '${cc.expression}'$nameParam),",
+        );
       }
       buffer.writeln('  ],');
     }
@@ -671,14 +770,19 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     final buffer = StringBuffer();
 
     buffer.writeln(
-        '/// Junction table schema for ${j.ownerTableName} <-> ${j.targetTableName}');
-    buffer.writeln('const _${_toCamelCase(j.tableName)}Schema = DatabaseSchema(');
+      '/// Junction table schema for ${j.ownerTableName} <-> ${j.targetTableName}',
+    );
+    buffer.writeln(
+      'const _${_toCamelCase(j.tableName)}Schema = DatabaseSchema(',
+    );
     buffer.writeln("  tableName: '${j.tableName}',");
     buffer.writeln('  columns: [');
     buffer.writeln(
-        "    ColumnSchema(name: '${j.joinColumnName}', type: 'INTEGER', nullable: false, primaryKey: false),");
+      "    ColumnSchema(name: '${j.joinColumnName}', type: 'INTEGER', nullable: false, primaryKey: false),",
+    );
     buffer.writeln(
-        "    ColumnSchema(name: '${j.inverseColumnName}', type: 'INTEGER', nullable: false, primaryKey: false),");
+      "    ColumnSchema(name: '${j.inverseColumnName}', type: 'INTEGER', nullable: false, primaryKey: false),",
+    );
     buffer.writeln('  ],');
     buffer.writeln(');');
     buffer.writeln();
