@@ -1,3 +1,4 @@
+import 'package:db_postgres_dorm_example/src/models/blog_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/post_entity.dart';
 import 'package:dorm/dorm.dart';
 
@@ -6,8 +7,8 @@ import 'models/user_entity.dart';
 part 'db.db.g.dart';
 
 @Db(
-  entities: [UserEntity, PostEntity],
-  migrationVersion: 1,
+  entities: [UserEntity, PostEntity, BlogEntity],
+  migrationVersion: 2,
   config: DbConfig.postgresql(
     host: 'localhost',
     port: 5432,

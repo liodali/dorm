@@ -1,7 +1,7 @@
 import 'package:dorm/dorm.dart';
 
 part 'post_entity.orm.g.dart';
-
+part 'post_entity.schema.g.dart';
 @Entity(tableName: 'posts', dbType: DatabaseType.postgresql)
 class PostEntity {
   @Id()

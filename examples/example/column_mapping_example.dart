@@ -133,7 +133,12 @@ class Product {
   final int categoryId;
 
   // Relationship - not a column
-  @ManyToOne(targetEntity: Category, eagerLoad: false)
+  @OneToMany(
+    targetEntity: Category,
+    foreignKey: 'category_id',
+    isOwning: true,
+    eagerLoad: false,
+  )
   final Category? category;
 
   const Product({

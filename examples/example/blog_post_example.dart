@@ -45,7 +45,12 @@ class Post {
   @Column(nullable: true)
   final DateTime? createdAt;
 
-  @ManyToOne(targetEntity: Blog, eagerLoad: false)
+  @OneToMany(
+    targetEntity: Blog,
+    foreignKey: 'blog_id',
+    isOwning: true,
+    eagerLoad: false,
+  )
   final Blog? blog;
 
   const Post({
