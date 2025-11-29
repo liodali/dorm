@@ -202,16 +202,78 @@ String temporaryData;
 
 ### Relationship Annotations
 
+#### `@OneToMany`
+
+Defines one-to-many and many-to-one relationships. Use `isOwning: true` on the side that owns the foreign key column.
+
 ```dart
-@OneToMany(mappedBy: 'userId')
+// In UserEntity (the "one" side - inverse, no FK column)
+@OneToMany(
+  targetEntity: PostEntity,
+  mappedBy: 'author',  // Field name in PostEntity
+)
 List<PostEntity>? posts;
 
-@ManyToOne(foreignKey: 'user_id')
-UserEntity? user;
+// In PostEntity (the "many" side - owning, has FK column)
+@OneToMany(
+  targetEntity: UserEntity,
+  foreignKey: 'user_id',     // FK column name in posts table
+  referencedColumn: 'id',    // Referenced column in users table
+  isOwning: true,
+  onDelete: RelationAction.cascade,
+)
+UserEntity? author;
+```
 
-@ManyToMany(joinTable: 'user_roles')
+**Parameters:**
+
+- `targetEntity` - The related entity type (required)
+- `mappedBy` - Field name in target entity (for inverse side)
+- `foreignKey` - FK column name (for owning side)
+- `referencedColumn` - Referenced column (default: 'id')
+- `isOwning` - Whether this side owns the FK (default: false)
+- `nullable` - Whether relationship is nullable (default: true)
+- `cascadeDelete` - Cascade delete operations (default: false)
+- `lazyLoad` / `eagerLoad` - Loading strategy
+- `onDelete` / `onUpdate` - FK constraint actions (`RelationAction.cascade`, etc.)
+
+#### `@ManyToMany`
+
+Creates a junction table to link two entities. One side is the "owning" side (defines the junction table), the other is the "inverse" side (references the owning side).
+
+```dart
+// Owning side - defines the junction table
+@ManyToMany(
+  targetEntity: RoleEntity,
+  joinTable: JoinTable(
+    name: 'user_roles',
+    joinColumn: JoinColumn(name: 'user_id', referencedColumn: 'id'),
+    inverseJoinColumn: JoinColumn(name: 'role_id', referencedColumn: 'id'),
+  ),
+)
+List<RoleEntity>? roles;
+
+// Inverse side - references the owning field
+@ManyToMany(
+  targetEntity: UserEntity,
+  mappedBy: 'roles',  // Field name in UserEntity
+)
+List<UserEntity>? users;
+```
+
+**Auto-generated junction table:** If `joinTable` is not specified, the generator creates one automatically:
+
+```dart
+// This will auto-generate junction table "users_role_entity"
+@ManyToMany(targetEntity: RoleEntity)
 List<RoleEntity>? roles;
 ```
+
+**Validation:** The generator validates that:
+
+- Target entity exists in `@Db` entities list
+- `mappedBy` references a valid field in the target entity
+- Owning and inverse sides are properly configured
 
 ---
 
@@ -289,6 +351,57 @@ extension DatabaseRepositories on Database {
   UserEntityRepository get userEntityRepository { ... }
   PostEntityRepository get postEntityRepository { ... }
 }
+```
+
+### ManyToMany Repository Methods
+
+For entities with `@ManyToMany` relationships, the generator creates dedicated methods:
+
+```dart
+// Generated: user_entity.orm.g.dart
+class UserEntityRepository extends Repository<UserEntity> {
+  // ... standard CRUD methods ...
+
+  /// Get all roles for a user
+  Future<List<RoleEntity>> getRoles(int userId) async { ... }
+
+  /// Add a role to a user
+  Future<void> addRole(int userId, int roleId) async { ... }
+
+  /// Remove a role from a user
+  Future<void> removeRole(int userId, int roleId) async { ... }
+
+  /// Clear all roles from a user
+  Future<void> clearRoles(int userId) async { ... }
+
+  /// Set roles for a user (replaces all existing)
+  Future<void> setRoles(int userId, List<int> roleIds) async { ... }
+
+  /// Find user with related data
+  Future<Map<String, dynamic>?> findByIdWithRelations(
+    int id, {
+    List<String> includes = const ['roles'],
+  }) async { ... }
+
+  /// Get all users with related data
+  Future<List<Map<String, dynamic>>> getAllWithRelations({
+    List<String> includes = const ['roles'],
+  }) async { ... }
+}
+```
+
+**Usage:**
+
+```dart
+// Get user with roles
+final result = await userRepo.findByIdWithRelations(1, includes: ['roles']);
+final user = result!['entity'] as UserEntity;
+final roles = result['roles'] as List<RoleEntity>;
+
+// Manage roles
+await userRepo.addRole(userId, roleId);
+await userRepo.removeRole(userId, roleId);
+await userRepo.setRoles(userId, [1, 2, 3]);
 ```
 
 ### Schema Definition

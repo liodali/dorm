@@ -38,14 +38,13 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
       final columnAnnotation = _getAnnotation(field, 'Column');
       final idAnnotation = _getAnnotation(field, 'Id');
       final oneToMany = _getAnnotation(field, 'OneToMany');
-      final manyToOne = _getAnnotation(field, 'ManyToOne');
       final manyToMany = _getAnnotation(field, 'ManyToMany');
 
-      if (oneToMany != null || manyToOne != null || manyToMany != null) {
+      if (oneToMany != null || manyToMany != null) {
         relationships.add({
           'fieldName': field.name,
           'type': _getRelationType(field),
-          'annotation': oneToMany ?? manyToOne ?? manyToMany,
+          'annotation': oneToMany ?? manyToMany,
         });
         continue;
       }
@@ -360,9 +359,9 @@ $findWithRelationsMethod
       // Determine relationship type
       String? relationshipType;
       if (annotation.element?.enclosingElement?.name == 'OneToMany') {
-        relationshipType = 'OneToMany';
-      } else if (annotation.element?.enclosingElement?.name == 'ManyToOne') {
-        relationshipType = 'ManyToOne';
+        // Check if isOwning to determine direction
+        final isOwning = _extractIsOwning(annotation);
+        relationshipType = isOwning ? 'OneToMany_Owning' : 'OneToMany_Inverse';
       } else if (annotation.element?.enclosingElement?.name == 'ManyToMany') {
         relationshipType = 'ManyToMany';
       }
@@ -407,10 +406,13 @@ ${cases.join('\n')}
       targetEntity,
     );
 
-    if (relationshipType == 'OneToMany') {
-      final foreignKey = mappedBy ?? '${_snakeCase(ownerTableName)}_id';
+    if (relationshipType == 'OneToMany_Inverse') {
+      // Inverse side (the "one" side) - load many related entities
+      final foreignKey =
+          _extractForeignKeyName(annotation) ??
+          '${_snakeCase(ownerTableName)}_id';
       return '''        case '$fieldName':
-          // Load OneToMany relationship for $fieldName
+          // Load OneToMany (inverse) relationship for $fieldName
           final ${_toCamelCase(targetEntity)}Repo = ${targetEntity}Repository();
           ${_toCamelCase(targetEntity)}Repo.setConnection(connection);
           final ${fieldName}Data = await ${_toCamelCase(targetEntity)}Repo.query()
@@ -418,10 +420,11 @@ ${cases.join('\n')}
             .toList();
           // Note: Requires mutable entity or copyWith pattern to set entity.$fieldName
           break;''';
-    } else if (relationshipType == 'ManyToOne') {
-      final foreignKeyField = mappedBy ?? '${fieldName}Id';
+    } else if (relationshipType == 'OneToMany_Owning') {
+      // Owning side (the "many" side) - load single related entity
+      final foreignKeyField = _extractForeignKeyField(annotation, fieldName);
       return '''        case '$fieldName':
-          // Load ManyToOne relationship for $fieldName
+          // Load OneToMany (owning) relationship for $fieldName
           final ${_toCamelCase(targetEntity)}Repo = ${targetEntity}Repository();
           ${_toCamelCase(targetEntity)}Repo.setConnection(connection);
           final ${fieldName}Data = await ${_toCamelCase(targetEntity)}Repo.findById(entity.$foreignKeyField);
@@ -476,6 +479,38 @@ ${cases.join('\n')}
     final source = annotation.toSource();
     final match = RegExp(r'''mappedBy:\s*['"](\w+)['"]''').firstMatch(source);
     return match?.group(1);
+  }
+
+  /// Check if OneToMany annotation has isOwning: true
+  bool _extractIsOwning(ElementAnnotation annotation) {
+    final source = annotation.toSource();
+    final match = RegExp(r'isOwning:\s*(true|false)').firstMatch(source);
+    return match?.group(1) == 'true';
+  }
+
+  /// Extract foreignKey column name from annotation
+  String? _extractForeignKeyName(ElementAnnotation annotation) {
+    final source = annotation.toSource();
+    final match = RegExp(r'''foreignKey:\s*['"](\w+)['"]''').firstMatch(source);
+    return match?.group(1);
+  }
+
+  /// Extract the Dart field name for the foreign key (e.g., userId for user_id)
+  String _extractForeignKeyField(
+    ElementAnnotation annotation,
+    String fieldName,
+  ) {
+    final fkName = _extractForeignKeyName(annotation);
+    if (fkName != null) {
+      // Convert snake_case FK name to camelCase field name
+      // e.g., user_id -> userId
+      return fkName.replaceAllMapped(
+        RegExp(r'_([a-z])'),
+        (m) => m.group(1)!.toUpperCase(),
+      );
+    }
+    // Default: fieldName + Id (e.g., user -> userId)
+    return '${fieldName}Id';
   }
 
   String _toCamelCase(String text) {

@@ -40,33 +40,98 @@ class Id {
   const Id({this.autoIncrement = true, this.strategy = 'SERIAL'});
 }
 
-// Relationship annotations
+/// OneToMany relationship annotation
+///
+/// Defines a one-to-many or many-to-one relationship between entities.
+/// Use `isOwning: true` on the side that owns the foreign key column.
+///
+/// Example:
+/// ```dart
+/// // In UserEntity (the "one" side - inverse)
+/// @OneToMany(
+///   targetEntity: PostEntity,
+///   mappedBy: 'author',  // Field name in PostEntity that references UserEntity
+/// )
+/// List<PostEntity>? posts;
+///
+/// // In PostEntity (the "many" side - owning, has FK column)
+/// @OneToMany(
+///   targetEntity: UserEntity,
+///   foreignKey: 'user_id',  // FK column name in this table
+///   referencedColumn: 'id', // Referenced column in UserEntity
+///   isOwning: true,
+/// )
+/// UserEntity? author;
+/// ```
 class OneToMany {
+  /// The target entity type for this relationship
   final Type targetEntity;
-  final String mappedBy;
+
+  /// Field name in the target entity that owns the relationship
+  /// Used on the inverse side (the "one" side) to reference the owning side's field
+  final String? mappedBy;
+
+  /// Foreign key column name in this entity's table
+  /// Required on the owning side (the side that has the FK column)
+  final String? foreignKey;
+
+  /// Referenced column in the target entity (usually 'id')
+  final String referencedColumn;
+
+  /// Whether this is the owning side (has the FK column)
+  /// - true: This entity's table has the FK column (many-to-one direction)
+  /// - false: The target entity's table has the FK column (one-to-many direction)
+  final bool isOwning;
+
+  /// Whether to cascade delete operations
   final bool cascadeDelete;
+
+  /// Whether to lazy load the relationship
   final bool lazyLoad;
+
+  /// Whether to eager load the relationship
+  final bool eagerLoad;
+
+  /// Whether this relationship is nullable
+  final bool nullable;
+
+  /// Action to take on delete of referenced entity
+  final RelationAction onDelete;
+
+  /// Action to take on update of referenced entity
+  final RelationAction onUpdate;
 
   const OneToMany({
     required this.targetEntity,
-    required this.mappedBy,
+    this.mappedBy,
+    this.foreignKey,
+    this.referencedColumn = 'id',
+    this.isOwning = false,
     this.cascadeDelete = false,
     this.lazyLoad = true,
+    this.eagerLoad = false,
+    this.nullable = true,
+    this.onDelete = RelationAction.noAction,
+    this.onUpdate = RelationAction.noAction,
   });
 }
 
-class ManyToOne {
-  final Type targetEntity;
-  final bool nullable;
-  final bool cascadeDelete;
-  final bool eagerLoad;
+/// Actions for relationship constraints (used in annotations)
+enum RelationAction {
+  /// No action on delete/update
+  noAction,
 
-  const ManyToOne({
-    required this.targetEntity,
-    this.nullable = true,
-    this.cascadeDelete = false,
-    this.eagerLoad = false,
-  });
+  /// Restrict delete/update if referenced
+  restrict,
+
+  /// Cascade delete/update to referencing rows
+  cascade,
+
+  /// Set to NULL on delete/update
+  setNull,
+
+  /// Set to default value on delete/update
+  setDefault,
 }
 
 /// ManyToMany relationship annotation
