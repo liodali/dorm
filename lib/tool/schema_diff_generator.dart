@@ -23,9 +23,13 @@ class SchemaDiffGenerator extends GeneratorForAnnotation<Entity> {
         annotation.peek('tableName')?.stringValue ?? _toSnakeCase(className!);
     final dbType = _getDatabaseType(annotation);
 
+    // Get the package root directory from the input path
+    final inputPath = buildStep.inputId.path;
+    final packageRoot = inputPath.split('lib/').first;
+
     final helper = _SchemaDiffHelper(
-      schemaFilePath: '.dorm/schemas',
-      migrationsPath: '.dorm/migrations',
+      schemaFilePath: '$packageRoot.dorm/schemas',
+      migrationsPath: '$packageRoot.dorm/migrations',
     );
 
     final migrationCode = await helper.generateMigrationIfNeeded(
@@ -78,7 +82,8 @@ class _SchemaDiffHelper {
     final previousSchema = await _loadPreviousSchema(tableName);
 
     if (previousSchema == null) {
-      // First time - create initial migration
+      // First time - create initial migration and save schema
+      await _saveSchema(currentSchema);
       return _generateInitialMigration(currentSchema, dbType);
     }
 
@@ -87,7 +92,7 @@ class _SchemaDiffHelper {
       return null; // No changes
     }
 
-    // Generate migration for changes
+    // Generate migration for changes and save updated schema
     await _saveSchema(currentSchema);
     return _generateDiffMigration(diff, currentSchema, dbType);
   }
@@ -108,7 +113,6 @@ class _SchemaDiffHelper {
       bool hasRelationship = false;
       bool isPrimaryKey = false;
       bool isUnique = false;
-      bool isNullable = true;
       String? defaultValue;
 
       for (final annotation in field.metadata.annotations) {
@@ -117,7 +121,8 @@ class _SchemaDiffHelper {
           hasIgnore = true;
           break;
         }
-        if (name == 'ManyToOne' ||
+        if (name == 'OneToOne' ||
+            name == 'ManyToOne' ||
             name == 'OneToMany' ||
             name == 'ManyToMany') {
           hasRelationship = true;
@@ -129,7 +134,6 @@ class _SchemaDiffHelper {
         if (name == 'Column') {
           // Parse column properties from annotation
           final source = annotation.toSource();
-          isNullable = !source.contains('nullable: false');
           isUnique = source.contains('unique: true');
         }
         if (name == 'Index') {
@@ -151,10 +155,18 @@ class _SchemaDiffHelper {
         field.type.getDisplayString(withNullability: false),
       );
 
+      // Determine nullability from field type
+      // A field is nullable if its Dart type is nullable (e.g., String?)
+      final typeIsNullable = field.type.nullabilitySuffix.toString().contains(
+        'question',
+      );
+      // Primary keys are never nullable, otherwise use type nullability
+      final finalNullable = isPrimaryKey ? false : typeIsNullable;
+
       columns.add({
         'name': columnName,
         'type': sqlType,
-        'nullable': isNullable,
+        'nullable': finalNullable,
         'primaryKey': isPrimaryKey,
         'unique': isUnique,
         'defaultValue': defaultValue,

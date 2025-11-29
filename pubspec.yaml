@@ -1,7 +1,18 @@
 name: dorm
 description: A starting point for Dart libraries or applications.
-version: 1.0.0
-# repository: https://github.com/my_org/my_repo
+version: 0.2.0
+repository: https://github.com/liodali/dorm
+homepage: https://github.com/liodali/dorm
+issue_tracker: https://github.com/liodali/dorm/issues
+
+topics:
+  - orm
+  - database
+  - sqlite
+  - postgres
+  - dart
+  - mysql
+  - orm-framework
 
 environment:
   sdk: ^3.10.0

@@ -5,3 +5,4 @@
 **/*.db.g.dart
 **/*.schemas.g.dart
 **/migrations/*.dart
+.dorm/

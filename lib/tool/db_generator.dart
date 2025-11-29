@@ -1045,6 +1045,55 @@ extension ${dbClassName}Lifecycle on $dbClassName {
     return migrations.any((m) => m.version > appliedVersion);
   }
 
+  /// Run a single ad-hoc SQL statement (not tracked in migrations table)
+  /// Use this for one-off operations that don't need version tracking
+  Future<void> runSql(String sql, {Map<String, dynamic>? parameters}) async {
+    if (connection == null) {
+      throw StateError('Database connection not established. Call init() or setup() first.');
+    }
+    await connection!.execute(sql, parameters: parameters);
+  }
+
+  /// Run multiple ad-hoc SQL statements (not tracked in migrations table)
+  Future<void> runSqlStatements(List<String> statements) async {
+    if (connection == null) {
+      throw StateError('Database connection not established. Call init() or setup() first.');
+    }
+    for (final sql in statements) {
+      await connection!.execute(sql);
+    }
+  }
+
+  /// Run a callback with access to connection and schema manager (not tracked)
+  /// 
+  /// Example:
+  /// ```dart
+  /// await db.runManual((connection, schemaManager) async {
+  ///   await connection.execute('ALTER TABLE users ADD COLUMN age INTEGER;');
+  ///   await schemaManager.createIndex(
+  ///     name: 'idx_users_age',
+  ///     table: 'users',
+  ///     columns: ['age'],
+  ///   );
+  /// });
+  /// ```
+  Future<void> runManual(MigrationCallback callback) async {
+    if (connection == null) {
+      throw StateError('Database connection not established. Call init() or setup() first.');
+    }
+    final schemaManager = SchemaManager(connection!);
+    await callback(connection!, schemaManager);
+  }
+
+  /// Rollback the last applied migration
+  Future<void> rollbackLastMigration(List<DatabaseMigration> migrations) async {
+    if (connection == null) {
+      throw StateError('Database connection not established. Call init() or setup() first.');
+    }
+    final runner = MigrationRunner(connection!, migrations);
+    await runner.rollbackLast();
+  }
+
   /// Close database connection
   Future<void> close() async {
     await _connection?.close();
