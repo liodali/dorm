@@ -1,5 +1,6 @@
 import 'package:db_postgres_dorm_example/src/models/blog_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/post_entity.dart';
+import 'package:db_postgres_dorm_example/src/models/product_entity.dart';
 import 'package:dorm/dorm.dart';
 
 import 'models/user_entity.dart';
@@ -8,8 +9,8 @@ part 'db.schemas.g.dart';
 part 'db.db.g.dart';
 
 @Db(
-  entities: [UserEntity, PostEntity, BlogEntity],
-  migrationVersion: 2,
+  entities: [UserEntity, PostEntity, BlogEntity, ProductEntity],
+  migrationVersion: 3,
   config: DbConfig.postgresql(
     host: 'localhost',
     port: 5432,
@@ -31,6 +32,11 @@ class Database {
 
   /// Get a user by ID
   Future<UserEntity?> getUserById(int id) async {
+    return userEntityRepository.findById(id);
+  }
+
+  /// Get a user by ID
+  Future<UserEntity?> getUserWithPostsById(int id) async {
     return userEntityRepository.findById(id);
   }
 

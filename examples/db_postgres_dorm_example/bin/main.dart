@@ -4,8 +4,63 @@ import 'package:db_postgres_dorm_example/src/models/post_entity.dart';
 import 'package:dorm/dorm.dart';
 
 /// Example migrations for this database
+///
+/// DORM supports multiple ways to define migrations:
+///
+/// 1. **RawSqlMigration** - Simple SQL statements
+/// 2. **ManualMigration** - Callback-based with full control
+/// 3. **CompositeMigration** - Combine multiple migrations
+/// 4. **Custom class** - Extend DatabaseMigration for complex logic
 final migrations = <DatabaseMigration>[
-  // Add your migrations here
+  // Example 1: Raw SQL migration
+  RawSqlMigration(
+    version: 3,
+    description: 'Add address column to users',
+    upSql: "ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT;",
+    downSql: 'ALTER TABLE users DROP COLUMN IF EXISTS address;',
+  ),
+
+  // // Example 3: Manual migration with callback
+  // ManualMigration(
+  //   version: 3,
+  //   description: 'Seed admin user',
+  //   onUp: (connection, schemaManager) async {
+  //     // Check if admin already exists
+  //     final result = await connection.query(
+  //       "SELECT id FROM users WHERE email = 'admin@example.com'",
+  //     );
+  //     if (result.isEmpty) {
+  //       await connection.execute(
+  //         "INSERT INTO users (name, email) VALUES ('Admin', 'admin@example.com')",
+  //       );
+  //     }
+  //   },
+  //   onDown: (connection, schemaManager) async {
+  //     await connection.execute(
+  //       "DELETE FROM users WHERE email = 'admin@example.com'",
+  //     );
+  //   },
+  // ),
+
+  // // Example 4: Composite migration (multiple steps as one version)
+  // CompositeMigration(
+  //   version: 4,
+  //   description: 'Add audit columns to all tables',
+  //   steps: [
+  //     RawSqlMigration(
+  //       version: 0, // ignored in composite
+  //       description: 'Add created_by to users',
+  //       upSql: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by INTEGER;',
+  //       downSql: 'ALTER TABLE users DROP COLUMN IF EXISTS created_by;',
+  //     ),
+  //     RawSqlMigration(
+  //       version: 0, // ignored in composite
+  //       description: 'Add created_by to posts',
+  //       upSql: 'ALTER TABLE posts ADD COLUMN IF NOT EXISTS created_by INTEGER;',
+  //       downSql: 'ALTER TABLE posts DROP COLUMN IF EXISTS created_by;',
+  //     ),
+  //   ],
+  // ),
 ];
 
 /// Example usage of DORM with PostgreSQL
