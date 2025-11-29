@@ -1,0 +1,265 @@
+/// Actions for relationship constraints (used in annotations)
+enum RelationAction {
+  /// No action on delete/update
+  noAction,
+
+  /// Restrict delete/update if referenced
+  restrict,
+
+  /// Cascade delete/update to referencing rows
+  cascade,
+
+  /// Set to NULL on delete/update
+  setNull,
+
+  /// Set to default value on delete/update
+  setDefault,
+}
+
+/// OneToOne relationship annotation
+///
+/// Defines a one-to-one relationship between entities.
+/// One side must be the owning side (has the FK column), the other is the inverse side.
+///
+/// Example:
+/// ```dart
+/// // In UserEntity (inverse side - no FK column)
+/// @OneToOne(
+///   targetEntity: ProfileEntity,
+///   mappedBy: 'user',  // Field name in ProfileEntity
+/// )
+/// ProfileEntity? profile;
+///
+/// // In ProfileEntity (owning side - has FK column)
+/// @OneToOne(
+///   targetEntity: UserEntity,
+///   foreignKey: 'user_id',
+///   isOwning: true,
+///   onDelete: RelationAction.cascade,
+/// )
+/// UserEntity? user;
+/// ```
+class OneToOne {
+  /// The target entity type for this relationship
+  final Type targetEntity;
+
+  /// Field name in the target entity that owns the relationship
+  /// Used on the inverse side to reference the owning side's field
+  final String? mappedBy;
+
+  /// Foreign key column name in this entity's table
+  /// Required on the owning side (the side that has the FK column)
+  final String? foreignKey;
+
+  /// Referenced column in the target entity (usually 'id')
+  final String referencedColumn;
+
+  /// Whether this is the owning side (has the FK column)
+  final bool isOwning;
+
+  /// Whether to cascade delete operations
+  final bool cascadeDelete;
+
+  /// Whether to lazy load the relationship
+  final bool lazyLoad;
+
+  /// Whether to eager load the relationship
+  final bool eagerLoad;
+
+  /// Whether this relationship is nullable
+  final bool nullable;
+
+  /// Whether to enforce uniqueness on the FK column (ensures 1:1)
+  final bool unique;
+
+  /// Action to take on delete of referenced entity
+  final RelationAction onDelete;
+
+  /// Action to take on update of referenced entity
+  final RelationAction onUpdate;
+
+  const OneToOne({
+    required this.targetEntity,
+    this.mappedBy,
+    this.foreignKey,
+    this.referencedColumn = 'id',
+    this.isOwning = false,
+    this.cascadeDelete = false,
+    this.lazyLoad = true,
+    this.eagerLoad = false,
+    this.nullable = true,
+    this.unique = true,
+    this.onDelete = RelationAction.noAction,
+    this.onUpdate = RelationAction.noAction,
+  });
+}
+
+/// OneToMany relationship annotation
+///
+/// Defines a one-to-many or many-to-one relationship between entities.
+/// Use `isOwning: true` on the side that owns the foreign key column.
+///
+/// Example:
+/// ```dart
+/// // In UserEntity (the "one" side - inverse)
+/// @OneToMany(
+///   targetEntity: PostEntity,
+///   mappedBy: 'author',  // Field name in PostEntity that references UserEntity
+/// )
+/// List<PostEntity>? posts;
+///
+/// // In PostEntity (the "many" side - owning, has FK column)
+/// @OneToMany(
+///   targetEntity: UserEntity,
+///   foreignKey: 'user_id',  // FK column name in this table
+///   referencedColumn: 'id', // Referenced column in UserEntity
+///   isOwning: true,
+/// )
+/// UserEntity? author;
+/// ```
+class OneToMany {
+  /// The target entity type for this relationship
+  final Type targetEntity;
+
+  /// Field name in the target entity that owns the relationship
+  /// Used on the inverse side (the "one" side) to reference the owning side's field
+  final String? mappedBy;
+
+  /// Foreign key column name in this entity's table
+  /// Required on the owning side (the side that has the FK column)
+  final String? foreignKey;
+
+  /// Referenced column in the target entity (usually 'id')
+  final String referencedColumn;
+
+  /// Whether this is the owning side (has the FK column)
+  /// - true: This entity's table has the FK column (many-to-one direction)
+  /// - false: The target entity's table has the FK column (one-to-many direction)
+  final bool isOwning;
+
+  /// Whether to cascade delete operations
+  final bool cascadeDelete;
+
+  /// Whether to lazy load the relationship
+  final bool lazyLoad;
+
+  /// Whether to eager load the relationship
+  final bool eagerLoad;
+
+  /// Whether this relationship is nullable
+  final bool nullable;
+
+  /// Action to take on delete of referenced entity
+  final RelationAction onDelete;
+
+  /// Action to take on update of referenced entity
+  final RelationAction onUpdate;
+
+  const OneToMany({
+    required this.targetEntity,
+    this.mappedBy,
+    this.foreignKey,
+    this.referencedColumn = 'id',
+    this.isOwning = false,
+    this.cascadeDelete = false,
+    this.lazyLoad = true,
+    this.eagerLoad = false,
+    this.nullable = true,
+    this.onDelete = RelationAction.noAction,
+    this.onUpdate = RelationAction.noAction,
+  });
+}
+
+/// ManyToMany relationship annotation
+///
+/// Creates a junction table to link two entities.
+///
+/// Example:
+/// ```dart
+/// // In UserEntity
+/// @ManyToMany(
+///   targetEntity: RoleEntity,
+///   joinTable: JoinTable(
+///     name: 'user_roles',
+///     joinColumn: JoinColumn(name: 'user_id', referencedColumn: 'id'),
+///     inverseJoinColumn: JoinColumn(name: 'role_id', referencedColumn: 'id'),
+///   ),
+/// )
+/// List<RoleEntity>? roles;
+///
+/// // In RoleEntity (inverse side)
+/// @ManyToMany(
+///   targetEntity: UserEntity,
+///   mappedBy: 'roles',  // References the field in UserEntity
+/// )
+/// List<UserEntity>? users;
+/// ```
+class ManyToMany {
+  /// The target entity type for this relationship
+  final Type targetEntity;
+
+  /// Junction table configuration (required on owning side)
+  final JoinTable? joinTable;
+
+  /// Field name in the target entity that owns the relationship (for inverse side)
+  /// If set, this is the inverse side and joinTable should be null
+  final String? mappedBy;
+
+  /// Whether to cascade delete operations
+  final bool cascadeDelete;
+
+  /// Whether to lazy load the relationship
+  final bool lazyLoad;
+
+  /// Index configuration for the junction table
+  final bool createIndex;
+
+  const ManyToMany({
+    required this.targetEntity,
+    this.joinTable,
+    this.mappedBy,
+    this.cascadeDelete = false,
+    this.lazyLoad = true,
+    this.createIndex = true,
+  });
+}
+
+/// Junction table configuration for ManyToMany relationships
+class JoinTable {
+  /// Name of the junction table
+  final String name;
+
+  /// Column configuration for the owning entity's foreign key
+  final JoinColumn joinColumn;
+
+  /// Column configuration for the target entity's foreign key
+  final JoinColumn inverseJoinColumn;
+
+  /// Additional indexes to create on the junction table
+  final List<String>? additionalIndexes;
+
+  const JoinTable({
+    required this.name,
+    required this.joinColumn,
+    required this.inverseJoinColumn,
+    this.additionalIndexes,
+  });
+}
+
+/// Column configuration for junction table foreign keys
+class JoinColumn {
+  /// Column name in the junction table
+  final String name;
+
+  /// Referenced column in the source entity (usually 'id')
+  final String referencedColumn;
+
+  /// Whether this column is nullable
+  final bool nullable;
+
+  const JoinColumn({
+    required this.name,
+    this.referencedColumn = 'id',
+    this.nullable = false,
+  });
+}
