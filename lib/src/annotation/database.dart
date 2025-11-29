@@ -73,6 +73,7 @@ class DbConfig {
 /// @Db(
 ///   entities: [UserEntity, PostEntity],
 ///   migrationVersion: 1,
+///   generateSql: true,  // Generates SQL file in .dart_tool/dorm/
 ///   config: DbConfig.postgresql(
 ///     host: 'localhost',
 ///     database: 'mydb',
@@ -98,10 +99,22 @@ class Db {
   /// Optional database name (defaults to config.database if config provided)
   final String? name;
 
+  /// Generate SQL file with CREATE TABLE statements
+  ///
+  /// When true, generates a SQL file at `.dart_tool/dorm/<db_name>.sql`
+  /// containing all CREATE TABLE, CREATE INDEX statements for the database.
+  /// The file is regenerated on each build.
+  final bool generateSql;
+
+  /// Target database type for SQL generation (defaults to config.dbType or postgresql)
+  final DatabaseType? sqlDialect;
+
   const Db({
     required this.entities,
     this.migrationVersion = 1,
     this.config,
     this.name,
+    this.generateSql = false,
+    this.sqlDialect,
   });
 }

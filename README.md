@@ -151,12 +151,23 @@ Marks a class as a database definition.
     password: 'password',
   ),
   name: 'mydb',                         // Database name (optional)
+  generateSql: true,                    // Generate SQL file (optional)
+  sqlDialect: DatabaseType.postgresql,  // SQL dialect (optional, defaults to config.dbType)
 )
 class Database {
   DatabaseConnection? _connection;
   DatabaseConnection? get connection => _connection;
 }
 ```
+
+**Parameters:**
+
+- `entities` - List of entity types to include
+- `migrationVersion` - Current migration version for schema tracking
+- `config` - Database connection configuration (optional)
+- `name` - Database name (optional)
+- `generateSql` - When `true`, generates SQL file at `.dart_tool/dorm/<db_name>.sql`
+- `sqlDialect` - Target SQL dialect for file generation (defaults to `config.dbType`)
 
 ### `DbConfig`
 
@@ -609,6 +620,60 @@ await schemaManager.dropTable(schema);
 ---
 
 ## Generated Code
+
+### SQL File Generation
+
+When `generateSql: true` is set in `@Db`, the generator creates SQL files:
+
+**Location:** `.dart_tool/dorm/`
+
+**Files generated:**
+
+- `<db_name>.sql` - Current schema (overwritten on each build)
+- `<db_name>_v<version>.sql` - Versioned copy for each migration version
+
+**Example output:**
+
+```sql
+-- ============================================================
+-- Database: mydb
+-- Generated: 2024-01-15T10:30:00.000Z
+-- Migration Version: 1
+-- SQL Dialect: postgresql
+-- ============================================================
+
+-- Entity Tables
+-- ============================================================
+
+-- Table: users
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL
+);
+
+-- Table: posts
+CREATE TABLE IF NOT EXISTS posts (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  user_id INTEGER NOT NULL
+);
+
+-- Junction Tables (ManyToMany)
+-- ============================================================
+
+-- Junction: users_roles
+CREATE TABLE IF NOT EXISTS users_roles (
+  users_id INTEGER NOT NULL,
+  roles_id INTEGER NOT NULL,
+  PRIMARY KEY (users_id, roles_id),
+  FOREIGN KEY (users_id) REFERENCES users (id) ON DELETE CASCADE,
+  FOREIGN KEY (roles_id) REFERENCES roles (id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_roles_users_id ON users_roles (users_id);
+CREATE INDEX IF NOT EXISTS idx_users_roles_roles_id ON users_roles (roles_id);
+```
 
 ### Repository Extension
 

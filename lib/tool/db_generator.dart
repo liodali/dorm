@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
@@ -25,9 +26,22 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     final className = element.name;
     final migrationVersion = annotation.peek('migrationVersion')?.intValue ?? 1;
     final dbName = annotation.peek('name')?.stringValue;
+    final generateSql = annotation.peek('generateSql')?.boolValue ?? false;
+    final sqlDialectValue = annotation.peek('sqlDialect')?.objectValue;
 
     // Extract DbConfig from annotation
     final configInfo = _extractDbConfig(annotation);
+
+    // Determine SQL dialect
+    String sqlDialect = 'postgresql';
+    if (sqlDialectValue != null) {
+      final dialectName = sqlDialectValue.getField('_name')?.toStringValue();
+      if (dialectName != null) {
+        sqlDialect = dialectName;
+      }
+    } else if (configInfo != null) {
+      sqlDialect = configInfo.dbType;
+    }
 
     // Extract entity types and their schema info from annotation
     final entitiesReader = annotation.peek('entities');
@@ -112,6 +126,18 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     // Generate schema hash to detect changes (include junction tables)
     final schemaHash = _generateSchemaHash(entities, junctionTables);
 
+    // Generate SQL file if requested
+    if (generateSql) {
+      await _generateSqlFile(
+        buildStep: buildStep,
+        dbName: dbName ?? className!.toLowerCase(),
+        entities: entities,
+        junctionTables: junctionTables,
+        sqlDialect: sqlDialect,
+        migrationVersion: migrationVersion,
+      );
+    }
+
     return _generateDbCode(
       className: className!,
       entities: entities,
@@ -121,6 +147,160 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
       dbName: dbName,
       schemaHash: schemaHash,
     );
+  }
+
+  /// Generate SQL file with CREATE TABLE statements
+  Future<void> _generateSqlFile({
+    required BuildStep buildStep,
+    required String dbName,
+    required List<_EntityInfo> entities,
+    required List<_JunctionTableInfo> junctionTables,
+    required String sqlDialect,
+    required int migrationVersion,
+  }) async {
+    final buffer = StringBuffer();
+    final timestamp = DateTime.now().toIso8601String();
+
+    // Header
+    buffer.writeln(
+      '-- ============================================================',
+    );
+    buffer.writeln('-- Database: $dbName');
+    buffer.writeln('-- Generated: $timestamp');
+    buffer.writeln('-- Migration Version: $migrationVersion');
+    buffer.writeln('-- SQL Dialect: $sqlDialect');
+    buffer.writeln(
+      '-- ============================================================',
+    );
+    buffer.writeln();
+
+    // Entity tables
+    buffer.writeln('-- Entity Tables');
+    buffer.writeln(
+      '-- ============================================================',
+    );
+    buffer.writeln();
+
+    for (final entity in entities) {
+      buffer.writeln('-- Table: ${entity.tableName}');
+      buffer.writeln(_generateCreateTableSql(entity, sqlDialect));
+      buffer.writeln();
+    }
+
+    // Junction tables
+    if (junctionTables.isNotEmpty) {
+      buffer.writeln('-- Junction Tables (ManyToMany)');
+      buffer.writeln(
+        '-- ============================================================',
+      );
+      buffer.writeln();
+
+      for (final junction in junctionTables) {
+        buffer.writeln('-- Junction: ${junction.tableName}');
+        buffer.writeln(_generateJunctionTableSql(junction, sqlDialect));
+        buffer.writeln();
+      }
+    }
+
+    // Write to .dart_tool/dorm/<db_name>.sql
+    final sqlDir = Directory('.dart_tool/dorm');
+    if (!sqlDir.existsSync()) {
+      sqlDir.createSync(recursive: true);
+    }
+
+    final sqlFile = File('${sqlDir.path}/$dbName.sql');
+    sqlFile.writeAsStringSync(buffer.toString());
+
+    // Also write a versioned copy
+    final versionedFile = File(
+      '${sqlDir.path}/${dbName}_v$migrationVersion.sql',
+    );
+    versionedFile.writeAsStringSync(buffer.toString());
+  }
+
+  /// Generate CREATE TABLE SQL for an entity
+  String _generateCreateTableSql(_EntityInfo entity, String dialect) {
+    final buffer = StringBuffer();
+    buffer.writeln('CREATE TABLE IF NOT EXISTS ${entity.tableName} (');
+
+    final columnDefs = <String>[];
+
+    for (final column in entity.columns) {
+      final parts = <String>[];
+      parts.add('  ${column.name}');
+
+      // Handle auto-increment for primary key
+      if (column.isPrimaryKey) {
+        switch (dialect) {
+          case 'postgresql':
+            parts.add(column.sqlType == 'INTEGER' ? 'SERIAL' : 'BIGSERIAL');
+            parts.add('PRIMARY KEY');
+          case 'mysql':
+            parts.add('${column.sqlType} AUTO_INCREMENT PRIMARY KEY');
+          case 'sqlite':
+            parts.add('INTEGER PRIMARY KEY AUTOINCREMENT');
+          default:
+            parts.add('${column.sqlType} PRIMARY KEY');
+        }
+      } else {
+        parts.add(column.sqlType);
+        if (!column.isNullable) {
+          parts.add('NOT NULL');
+        }
+      }
+
+      columnDefs.add(parts.join(' '));
+    }
+
+    buffer.writeln(columnDefs.join(',\n'));
+    buffer.write(')');
+
+    if (dialect == 'mysql') {
+      buffer.write(' ENGINE=InnoDB');
+    }
+
+    buffer.writeln(';');
+
+    return buffer.toString();
+  }
+
+  /// Generate CREATE TABLE SQL for a junction table
+  String _generateJunctionTableSql(
+    _JunctionTableInfo junction,
+    String dialect,
+  ) {
+    final buffer = StringBuffer();
+    buffer.writeln('CREATE TABLE IF NOT EXISTS ${junction.tableName} (');
+
+    final columnDefs = <String>[
+      '  ${junction.joinColumnName} INTEGER NOT NULL',
+      '  ${junction.inverseColumnName} INTEGER NOT NULL',
+      '  PRIMARY KEY (${junction.joinColumnName}, ${junction.inverseColumnName})',
+      '  FOREIGN KEY (${junction.joinColumnName}) REFERENCES ${junction.ownerTableName} (${junction.joinColumnRef}) ON DELETE CASCADE',
+      '  FOREIGN KEY (${junction.inverseColumnName}) REFERENCES ${junction.targetTableName} (${junction.inverseColumnRef}) ON DELETE CASCADE',
+    ];
+
+    buffer.writeln(columnDefs.join(',\n'));
+    buffer.write(')');
+
+    if (dialect == 'mysql') {
+      buffer.write(' ENGINE=InnoDB');
+    }
+
+    buffer.writeln(';');
+
+    // Add indexes if needed
+    if (junction.createIndex) {
+      buffer.writeln();
+      buffer.writeln(
+        'CREATE INDEX IF NOT EXISTS idx_${junction.tableName}_${junction.joinColumnName} ON ${junction.tableName} (${junction.joinColumnName});',
+      );
+      buffer.writeln(
+        'CREATE INDEX IF NOT EXISTS idx_${junction.tableName}_${junction.inverseColumnName} ON ${junction.tableName} (${junction.inverseColumnName});',
+      );
+    }
+
+    return buffer.toString();
   }
 
   /// Extract ManyToMany relationships from entity
