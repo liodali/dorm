@@ -103,7 +103,11 @@ void main() async {
 
     // Create a user
     print('Creating user...');
-    final user = UserEntity(name: 'John Doe', email: 'john@example.com');
+    final user = UserEntity(
+      name: 'John Doe',
+      email: 'john@example.com',
+      address: '123 Main St, Anytown, USA',
+    );
     final savedUser = await db.userEntityRepository.save(user);
     print('Created user: ${savedUser.id} - ${savedUser.name}\n');
 

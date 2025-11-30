@@ -19,6 +19,7 @@ class UserEntity {
 
   String? address;
 
+  /// Inverse side of ManyToMany - references the owning side field
   @ManyToMany(targetEntity: ProductEntity, mappedBy: 'users')
   List<ProductEntity>? products;
 
