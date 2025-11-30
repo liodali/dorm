@@ -55,7 +55,7 @@ abstract class DatabaseMigration {
 
     final uniqueKeyword = unique ? 'UNIQUE ' : '';
     final sql =
-        'CREATE ${uniqueKeyword}INDEX $name ON $table (${columns.join(', ')});';
+        'CREATE ${uniqueKeyword}INDEX IF NOT EXISTS $name ON $table (${columns.join(', ')});';
     await connection.execute(sql);
   }
 
@@ -91,9 +91,12 @@ abstract class DatabaseMigration {
     if (exists) return;
 
     final nullableStr = nullable ? '' : ' NOT NULL';
-    final defaultStr = defaultValue != null ? ' DEFAULT $defaultValue' : '';
+    final defaultStr = defaultValue != null
+        ? ' DEFAULT ${defaultValue.isEmpty ? "''" : defaultValue}'
+        : "''";
     final sql =
-        'ALTER TABLE $table ADD COLUMN $column $type$nullableStr$defaultStr;';
+        'ALTER TABLE $table ADD COLUMN IF NOT EXISTS $column $type$nullableStr$defaultStr;';
+    print(sql);
     await connection.execute(sql);
   }
 
@@ -105,7 +108,7 @@ abstract class DatabaseMigration {
     final exists = await _columnExists(table, column);
     if (!exists) return;
 
-    final sql = 'ALTER TABLE $table DROP COLUMN $column;';
+    final sql = 'ALTER TABLE $table DROP COLUMN IF EXISTS $column;';
     await connection.execute(sql);
   }
 

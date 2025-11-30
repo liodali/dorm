@@ -1207,13 +1207,14 @@ extension ${dbClassName}Lifecycle on $dbClassName {
   /// Setup database: connect (using config from annotation or parameter), run migrations, validate schema
   /// 
   /// [config] - Optional DatabaseConfig, uses annotation config if not provided
-  /// [migrations] - List of migrations to run (sorted by version)
+  /// [customMigrations] - Additional custom migrations to run alongside generated migrations
   /// [validateSchema] - If true, validates schema matches database
   /// [autoCreateSchema] - If true, creates all tables before running migrations (default: true)
   /// Throws [StateError] if schema changed but migration version not bumped
+  /// Throws [StateError] if custom migrations conflict with generated migrations
   Future<void> setup({
     DatabaseConfig? config,
-    List<DatabaseMigration> migrations = const [],
+    List<DatabaseMigration> customMigrations = const [],
     bool validateSchema = true,
     bool autoCreateSchema = true,
   }) async {
@@ -1231,7 +1232,7 @@ extension ${dbClassName}Lifecycle on $dbClassName {
     
     // Run migrations and validate schema
     await initializeDatabase(
-      migrations: migrations,
+      customMigrations: customMigrations,
       validateSchema: validateSchema,
     );
   }
@@ -1245,11 +1246,12 @@ extension ${dbClassName}Lifecycle on $dbClassName {
 
   /// Initialize database: run migrations if needed, validate schema
   /// 
-  /// [migrations] - List of migrations to run (sorted by version)
+  /// [customMigrations] - Additional custom migrations to run alongside generated migrations
   /// [validateSchema] - If true, validates schema matches database
   /// Throws [StateError] if schema changed but migration version not bumped
+  /// Throws [StateError] if custom migrations conflict with generated migrations
   Future<void> initializeDatabase({
-    List<DatabaseMigration> migrations = const [],
+    List<DatabaseMigration> customMigrations = const [],
     bool validateSchema = true,
   }) async {
     // Ensure connection is established
@@ -1257,9 +1259,12 @@ extension ${dbClassName}Lifecycle on $dbClassName {
       throw StateError('Database connection not established. Call init() or setup() first.');
     }
 
+    // Combine generated migrations with custom migrations (checks for conflicts)
+    final allMigrations = this.allMigrations(customMigrations);
+
     // Run pending migrations
-    if (migrations.isNotEmpty) {
-      await _runMigrations(migrations);
+    if (allMigrations.isNotEmpty) {
+      await _runMigrations(allMigrations);
     }
 
     // Validate schema if enabled
