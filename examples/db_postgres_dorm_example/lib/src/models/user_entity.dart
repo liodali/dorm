@@ -18,6 +18,7 @@ class UserEntity {
   String email;
 
   String? address;
+  String? phoneNumber;
 
   /// Inverse side of ManyToMany - references the owning side field
   @ManyToMany(targetEntity: ProductEntity, mappedBy: 'users')
@@ -34,5 +35,6 @@ class UserEntity {
     required this.name,
     required this.email,
     this.address,
+    this.phoneNumber,
   });
 }

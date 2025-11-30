@@ -86,6 +86,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
             final schemaInfo = _extractEntitySchemaInfo(
               entityElement,
               tableName,
+              entityToTableName,
             );
             entities.add(schemaInfo);
           }
@@ -167,6 +168,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
   _EntitySchemaInfo _extractEntitySchemaInfo(
     ClassElement element,
     String tableName,
+    Map<String, String> entityToTableName,
   ) {
     final className = element.name!;
     final fieldNames = _collectFieldNames(element);
@@ -176,7 +178,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
 
     final columns = _extractColumns(element);
     final indexes = _extractIndexes(element, tableName);
-    final foreignKeys = _extractForeignKeys(element);
+    final foreignKeys = _extractForeignKeys(element, entityToTableName);
     final primaryKeyColumns = _extractPrimaryKeyColumns(element);
     final uniqueConstraints = _extractUniqueConstraints(element);
     final checkConstraints = _extractCheckConstraints(element);
@@ -348,7 +350,10 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
   }
 
   /// Extract foreign keys from fields and ManyToOne annotations
-  List<_ForeignKeyInfo> _extractForeignKeys(ClassElement element) {
+  List<_ForeignKeyInfo> _extractForeignKeys(
+    ClassElement element,
+    Map<String, String> entityToTableName,
+  ) {
     final foreignKeys = <_ForeignKeyInfo>[];
     final processedColumns = <String>{};
 
@@ -364,11 +369,14 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
         final targetMatch = RegExp(r'targetEntity:\s*(\w+)').firstMatch(source);
         if (targetMatch != null) {
           final targetEntityName = targetMatch.group(1)!;
-          final targetTableName = _toSnakeCase(targetEntityName);
+          // Use entityToTableName map to get the correct table name, fallback to snake_case
+          final targetTableName =
+              entityToTableName[targetEntityName] ??
+              _toSnakeCase(targetEntityName);
 
           // Extract foreignKey or generate default
           final fkMatch = RegExp(
-            r'''foreignKey:\s*['"](\w+)['"]''',
+            r'''foreignKey:\s*['"]([\w]+)['"]''',
           ).firstMatch(source);
           final foreignKeyColumn = fkMatch?.group(1) ?? '${targetTableName}_id';
 
@@ -428,7 +436,10 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
       // Auto-detect foreign key (ends with Id or _id)
       else if (field.displayName.endsWith('Id') ||
           field.displayName.endsWith('_id')) {
-        final refTable = _inferReferencedTable(field.displayName);
+        final refTable = _inferReferencedTable(
+          field.displayName,
+          entityToTableName,
+        );
         foreignKeys.add(
           _ForeignKeyInfo(
             column: columnName,
@@ -541,14 +552,29 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     return typeMap[name] ?? 'TEXT';
   }
 
-  String _inferReferencedTable(String fieldName) {
-    String tableName = fieldName;
-    if (tableName.endsWith('Id')) {
-      tableName = tableName.substring(0, tableName.length - 2);
-    } else if (tableName.endsWith('_id')) {
-      tableName = tableName.substring(0, tableName.length - 3);
+  String _inferReferencedTable(
+    String fieldName,
+    Map<String, String> entityToTableName,
+  ) {
+    String baseName = fieldName;
+    if (baseName.endsWith('Id')) {
+      baseName = baseName.substring(0, baseName.length - 2);
+    } else if (baseName.endsWith('_id')) {
+      baseName = baseName.substring(0, baseName.length - 3);
     }
-    return '${_toSnakeCase(tableName)}s';
+
+    // Try to find a matching entity name (e.g., 'user' -> 'UserEntity' or 'User')
+    final capitalizedName = baseName[0].toUpperCase() + baseName.substring(1);
+    for (final entityName in entityToTableName.keys) {
+      // Match 'UserEntity' or 'User' for field 'userId'
+      if (entityName == capitalizedName ||
+          entityName == '${capitalizedName}Entity') {
+        return entityToTableName[entityName]!;
+      }
+    }
+
+    // Fallback: convert to snake_case and add 's' suffix
+    return '${_toSnakeCase(baseName)}s';
   }
 
   /// Extract ManyToMany relationships from entity
@@ -1054,6 +1080,16 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
 
   String _toCamelCase(String text) {
     if (text.isEmpty) return text;
+    // Handle snake_case: products_users -> productsUsers
+    if (text.contains('_')) {
+      final parts = text.split('_');
+      return parts.first.toLowerCase() +
+          parts
+              .skip(1)
+              .map((p) => p.isEmpty ? '' : p[0].toUpperCase() + p.substring(1))
+              .join();
+    }
+    // Handle PascalCase: UserEntity -> userEntity
     return text[0].toLowerCase() + text.substring(1);
   }
 }
