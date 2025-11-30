@@ -3,11 +3,11 @@ targets:
     builders:
       dorm|entity:
         enabled: true
+      dorm|migration:
+        enabled: true
       dorm|db_schema:
         enabled: true
       dorm|db:
-        enabled: true
-      dorm|migration:
         enabled: true
       dorm|schema_diff:
         enabled: true
@@ -19,6 +19,15 @@ builders:
     build_extensions: { ".dart": [".orm.g.dart"] }
     auto_apply: dependents
     build_to: source
+    runs_before: ["dorm|migration"]
+
+  migration:
+    import: "package:dorm/tool/migration_generator.dart"
+    builder_factories: ["migrationGeneratorBuilder"]
+    build_extensions: { ".dart": [".migration.g.dart"] }
+    auto_apply: dependents
+    build_to: source
+    required_inputs: [".orm.g.dart"]
     runs_before: ["dorm|db_schema"]
 
   db_schema:
@@ -37,15 +46,6 @@ builders:
     auto_apply: dependents
     build_to: source
     required_inputs: [".schemas.g.dart"]
-    runs_before: ["dorm|migration"]
-
-  migration:
-    import: "package:dorm/tool/migration_generator.dart"
-    builder_factories: ["migrationGeneratorBuilder"]
-    build_extensions: { ".dart": [".migration.g.dart"] }
-    auto_apply: dependents
-    build_to: source
-    required_inputs: [".db.g.dart"]
 
   schema_diff:
     import: "package:dorm/tool/schema_diff_generator.dart"
