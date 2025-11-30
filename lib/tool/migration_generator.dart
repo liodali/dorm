@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
@@ -8,6 +9,11 @@ import 'package:source_gen/source_gen.dart';
 
 /// Generator for database migrations
 /// Generates migrations in .migration.g.dart as part of the database file
+///
+/// Uses stored schema JSON to detect changes:
+/// - If no previous schema exists: generates initial migration (version 1)
+/// - If schema changed: generates diff migration for the changes
+/// - If no changes: generates empty migration file (just extension)
 class MigrationGenerator extends GeneratorForAnnotation<Db> {
   @override
   Future<String> generateForAnnotatedElement(
@@ -25,6 +31,8 @@ class MigrationGenerator extends GeneratorForAnnotation<Db> {
     final className = element.name;
     final migrationVersion = annotation.peek('migrationVersion')?.intValue ?? 1;
     final sqlDialectValue = annotation.peek('sqlDialect')?.objectValue;
+    final dbName =
+        annotation.peek('name')?.stringValue ?? className!.toLowerCase();
 
     // Extract DbConfig from annotation
     final configInfo = _extractDbConfig(annotation);
@@ -39,6 +47,11 @@ class MigrationGenerator extends GeneratorForAnnotation<Db> {
     } else if (configInfo != null) {
       sqlDialect = configInfo.dbType;
     }
+
+    // Get schema storage path
+    final inputPath = buildStep.inputId.path;
+    final packageRoot = inputPath.split('lib/').first;
+    final schemaFilePath = '$packageRoot.dorm/$dbName.schema.json';
 
     // Extract entity types and their schema info from annotation
     final entitiesReader = annotation.peek('entities');
@@ -199,8 +212,16 @@ class MigrationGenerator extends GeneratorForAnnotation<Db> {
       entityToTableName,
     );
 
-    // Generate schema hash
+    // Generate current schema as JSON
+    final currentSchema = _schemaToJson(entities, junctionTables);
     final schemaHash = _generateSchemaHash(entities, junctionTables);
+
+    // Load previous schema and compare
+    final previousSchema = await _loadPreviousSchema(schemaFilePath);
+    final schemaChanges = _compareSchemas(previousSchema, currentSchema);
+
+    // Save current schema for next comparison
+    await _saveSchema(schemaFilePath, currentSchema);
 
     return _generateMigrationCode(
       className: className!,
@@ -209,7 +230,252 @@ class MigrationGenerator extends GeneratorForAnnotation<Db> {
       migrationVersion: migrationVersion,
       sqlDialect: sqlDialect,
       schemaHash: schemaHash,
+      previousSchema: previousSchema,
+      schemaChanges: schemaChanges,
     );
+  }
+
+  /// Convert schema to JSON for storage
+  Map<String, dynamic> _schemaToJson(
+    List<_EntityInfo> entities,
+    List<_JunctionTableInfo> junctionTables,
+  ) {
+    return {
+      'version': 1,
+      'generatedAt': DateTime.now().toIso8601String(),
+      'tables': entities
+          .map(
+            (e) => {
+              'name': e.tableName,
+              'className': e.className,
+              'columns': e.columns
+                  .map(
+                    (c) => {
+                      'name': c.name,
+                      'type': c.sqlType,
+                      'nullable': c.isNullable,
+                      'primaryKey': c.isPrimaryKey,
+                    },
+                  )
+                  .toList(),
+              'foreignKeys': e.manyToOneRelations
+                  .map(
+                    (fk) => {
+                      'column': fk.foreignKeyColumn,
+                      'referencedTable': fk.targetTableName,
+                      'referencedColumn': fk.referencedColumn,
+                      'onDelete': fk.onDelete,
+                      'onUpdate': fk.onUpdate,
+                    },
+                  )
+                  .toList(),
+            },
+          )
+          .toList(),
+      'junctionTables': junctionTables
+          .map(
+            (j) => {
+              'name': j.tableName,
+              'ownerTable': j.ownerTableName,
+              'targetTable': j.targetTableName,
+              'joinColumn': j.joinColumnName,
+              'inverseColumn': j.inverseColumnName,
+            },
+          )
+          .toList(),
+    };
+  }
+
+  /// Load previous schema from JSON file
+  Future<Map<String, dynamic>?> _loadPreviousSchema(String filePath) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      return null;
+    }
+    try {
+      final content = await file.readAsString();
+      return json.decode(content) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Save current schema to JSON file
+  Future<void> _saveSchema(String filePath, Map<String, dynamic> schema) async {
+    final file = File(filePath);
+    await file.parent.create(recursive: true);
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(schema),
+    );
+  }
+
+  /// Compare schemas and return list of changes
+  List<_SchemaChange> _compareSchemas(
+    Map<String, dynamic>? oldSchema,
+    Map<String, dynamic> newSchema,
+  ) {
+    final changes = <_SchemaChange>[];
+
+    if (oldSchema == null) {
+      // No previous schema - this is initial migration
+      return changes;
+    }
+
+    final oldTables = Map<String, dynamic>.fromEntries(
+      (oldSchema['tables'] as List? ?? []).map(
+        (t) => MapEntry(t['name'] as String, t),
+      ),
+    );
+    final newTables = Map<String, dynamic>.fromEntries(
+      (newSchema['tables'] as List? ?? []).map(
+        (t) => MapEntry(t['name'] as String, t),
+      ),
+    );
+
+    // Detect added tables
+    for (final entry in newTables.entries) {
+      if (!oldTables.containsKey(entry.key)) {
+        changes.add(
+          _SchemaChange(
+            type: _ChangeType.addTable,
+            tableName: entry.key,
+            details: entry.value,
+          ),
+        );
+      }
+    }
+
+    // Detect removed tables
+    for (final entry in oldTables.entries) {
+      if (!newTables.containsKey(entry.key)) {
+        changes.add(
+          _SchemaChange(
+            type: _ChangeType.dropTable,
+            tableName: entry.key,
+            details: entry.value,
+          ),
+        );
+      }
+    }
+
+    // Detect column changes in existing tables
+    for (final entry in newTables.entries) {
+      if (oldTables.containsKey(entry.key)) {
+        final oldTable = oldTables[entry.key]!;
+        final newTable = entry.value;
+
+        final columnChanges = _compareTableColumns(
+          entry.key,
+          oldTable['columns'] as List? ?? [],
+          newTable['columns'] as List? ?? [],
+        );
+        changes.addAll(columnChanges);
+      }
+    }
+
+    // Compare junction tables
+    final oldJunctions = Map<String, dynamic>.fromEntries(
+      (oldSchema['junctionTables'] as List? ?? []).map(
+        (t) => MapEntry(t['name'] as String, t),
+      ),
+    );
+    final newJunctions = Map<String, dynamic>.fromEntries(
+      (newSchema['junctionTables'] as List? ?? []).map(
+        (t) => MapEntry(t['name'] as String, t),
+      ),
+    );
+
+    for (final entry in newJunctions.entries) {
+      if (!oldJunctions.containsKey(entry.key)) {
+        changes.add(
+          _SchemaChange(
+            type: _ChangeType.addJunctionTable,
+            tableName: entry.key,
+            details: entry.value,
+          ),
+        );
+      }
+    }
+
+    for (final entry in oldJunctions.entries) {
+      if (!newJunctions.containsKey(entry.key)) {
+        changes.add(
+          _SchemaChange(
+            type: _ChangeType.dropJunctionTable,
+            tableName: entry.key,
+            details: entry.value,
+          ),
+        );
+      }
+    }
+
+    return changes;
+  }
+
+  /// Compare columns between old and new table
+  List<_SchemaChange> _compareTableColumns(
+    String tableName,
+    List<dynamic> oldColumns,
+    List<dynamic> newColumns,
+  ) {
+    final changes = <_SchemaChange>[];
+
+    final oldColMap = Map<String, dynamic>.fromEntries(
+      oldColumns.map((c) => MapEntry(c['name'] as String, c)),
+    );
+    final newColMap = Map<String, dynamic>.fromEntries(
+      newColumns.map((c) => MapEntry(c['name'] as String, c)),
+    );
+
+    // Added columns
+    for (final entry in newColMap.entries) {
+      if (!oldColMap.containsKey(entry.key)) {
+        changes.add(
+          _SchemaChange(
+            type: _ChangeType.addColumn,
+            tableName: tableName,
+            columnName: entry.key,
+            details: entry.value,
+          ),
+        );
+      }
+    }
+
+    // Removed columns
+    for (final entry in oldColMap.entries) {
+      if (!newColMap.containsKey(entry.key)) {
+        changes.add(
+          _SchemaChange(
+            type: _ChangeType.dropColumn,
+            tableName: tableName,
+            columnName: entry.key,
+            details: entry.value,
+          ),
+        );
+      }
+    }
+
+    // Modified columns
+    for (final entry in newColMap.entries) {
+      if (oldColMap.containsKey(entry.key)) {
+        final oldCol = oldColMap[entry.key]!;
+        final newCol = entry.value;
+
+        if (oldCol['type'] != newCol['type'] ||
+            oldCol['nullable'] != newCol['nullable']) {
+          changes.add(
+            _SchemaChange(
+              type: _ChangeType.alterColumn,
+              tableName: tableName,
+              columnName: entry.key,
+              details: {'old': oldCol, 'new': newCol},
+            ),
+          );
+        }
+      }
+    }
+
+    return changes;
   }
 
   String _generateMigrationCode({
@@ -219,6 +485,8 @@ class MigrationGenerator extends GeneratorForAnnotation<Db> {
     required int migrationVersion,
     required String sqlDialect,
     required String schemaHash,
+    required Map<String, dynamic>? previousSchema,
+    required List<_SchemaChange> schemaChanges,
   }) {
     final buffer = StringBuffer();
 
@@ -227,23 +495,253 @@ class MigrationGenerator extends GeneratorForAnnotation<Db> {
     buffer.writeln('// Migration version: $migrationVersion');
     buffer.writeln('// Schema hash: $schemaHash');
     buffer.writeln('// SQL Dialect: $sqlDialect');
+
+    if (previousSchema == null) {
+      buffer.writeln(
+        '// Status: Initial schema - generating initial migration',
+      );
+    } else if (schemaChanges.isEmpty) {
+      buffer.writeln('// Status: No schema changes detected');
+    } else {
+      buffer.writeln(
+        '// Status: ${schemaChanges.length} schema change(s) detected',
+      );
+    }
     buffer.writeln();
 
-    // Generate the migrations list getter
-    buffer.writeln(_generateMigrationsGetter(className, migrationVersion));
+    // Generate migrations list
+    if (previousSchema == null) {
+      // Initial migration
+      buffer.writeln(_generateMigrationsGetter(className, 1));
+      buffer.writeln(
+        _generateInitialMigration(
+          className,
+          entities,
+          junctionTables,
+          sqlDialect,
+        ),
+      );
+    } else if (schemaChanges.isNotEmpty) {
+      // Diff migration
+      buffer.writeln(
+        _generateMigrationsGetterWithDiff(className, migrationVersion),
+      );
+      buffer.writeln(
+        _generateInitialMigration(
+          className,
+          entities,
+          junctionTables,
+          sqlDialect,
+        ),
+      );
+      buffer.writeln(
+        _generateDiffMigration(
+          className,
+          schemaChanges,
+          migrationVersion,
+          sqlDialect,
+        ),
+      );
+    } else {
+      // No changes - just generate initial migration getter
+      buffer.writeln(_generateMigrationsGetter(className, 1));
+      buffer.writeln(
+        _generateInitialMigration(
+          className,
+          entities,
+          junctionTables,
+          sqlDialect,
+        ),
+      );
+    }
 
-    // Generate initial schema migration (version 1)
-    buffer.writeln(
-      _generateInitialMigration(
-        className,
-        entities,
-        junctionTables,
-        sqlDialect,
-      ),
-    );
-
-    // Generate migration extension with validation
+    // Generate migration extension
     buffer.writeln(_generateMigrationExtension(className, migrationVersion));
+
+    return buffer.toString();
+  }
+
+  String _generateMigrationsGetterWithDiff(String className, int version) {
+    return '''
+/// Generated migrations for $className
+/// Includes initial migration and schema diff migrations
+List<DatabaseMigration> get _${_toCamelCase(className)}GeneratedMigrations => [
+  _${className}InitialMigration(),
+  _${className}Migration$version(),
+];
+''';
+  }
+
+  String _generateDiffMigration(
+    String className,
+    List<_SchemaChange> changes,
+    int version,
+    String sqlDialect,
+  ) {
+    final buffer = StringBuffer();
+
+    buffer.writeln('''
+/// Schema diff migration - version $version
+/// Changes detected:
+''');
+
+    for (final change in changes) {
+      buffer.writeln(
+        '/// - ${change.type.name}: ${change.tableName}${change.columnName != null ? '.${change.columnName}' : ''}',
+      );
+    }
+
+    buffer.writeln('''
+class _${className}Migration$version extends DatabaseMigration {
+  @override
+  int get version => $version;
+
+  @override
+  String get description => 'Schema changes - version $version';
+
+  @override
+  Future<void> up() async {
+''');
+
+    // Generate up statements
+    for (final change in changes) {
+      switch (change.type) {
+        case _ChangeType.addTable:
+          final table = change.details as Map<String, dynamic>;
+          buffer.writeln("    // Add table ${change.tableName}");
+          buffer.writeln("    await createTable(");
+          buffer.writeln("      DatabaseSchema(");
+          buffer.writeln("        tableName: '${change.tableName}',");
+          buffer.writeln("        columns: [");
+          for (final col in (table['columns'] as List? ?? [])) {
+            final pkStr = col['primaryKey'] == true ? ', primaryKey: true' : '';
+            final nullStr = col['nullable'] == true ? ', nullable: true' : '';
+            buffer.writeln(
+              "          ColumnSchema(name: '${col['name']}', type: '${col['type']}'$nullStr$pkStr),",
+            );
+          }
+          buffer.writeln("        ],");
+          buffer.writeln("      ),");
+          buffer.writeln("    );");
+          break;
+
+        case _ChangeType.dropTable:
+          buffer.writeln("    await dropTable('${change.tableName}');");
+          break;
+
+        case _ChangeType.addColumn:
+          final col = change.details as Map<String, dynamic>;
+          final nullStr = col['nullable'] == true ? '' : ' NOT NULL';
+          buffer.writeln(
+            "    await addColumn('${change.tableName}', '${change.columnName}', '${col['type']}$nullStr');",
+          );
+          break;
+
+        case _ChangeType.dropColumn:
+          buffer.writeln(
+            "    await dropColumn('${change.tableName}', '${change.columnName}');",
+          );
+          break;
+
+        case _ChangeType.alterColumn:
+          final details = change.details as Map<String, dynamic>;
+          final newCol = details['new'] as Map<String, dynamic>;
+          buffer.writeln(
+            "    // Alter column ${change.columnName} in ${change.tableName}",
+          );
+          buffer.writeln(
+            "    await connection.execute(\"ALTER TABLE ${change.tableName} ALTER COLUMN ${change.columnName} TYPE ${newCol['type']}\");",
+          );
+          break;
+
+        case _ChangeType.addJunctionTable:
+          final junction = change.details as Map<String, dynamic>;
+          buffer.writeln("    // Add junction table ${change.tableName}");
+          buffer.writeln("    await createTable(");
+          buffer.writeln("      DatabaseSchema(");
+          buffer.writeln("        tableName: '${change.tableName}',");
+          buffer.writeln("        columns: [");
+          buffer.writeln(
+            "          ColumnSchema(name: '${junction['joinColumn']}', type: 'INTEGER'),",
+          );
+          buffer.writeln(
+            "          ColumnSchema(name: '${junction['inverseColumn']}', type: 'INTEGER'),",
+          );
+          buffer.writeln("        ],");
+          buffer.writeln(
+            "        primaryKeyColumns: ['${junction['joinColumn']}', '${junction['inverseColumn']}'],",
+          );
+          buffer.writeln("        foreignKeys: [");
+          buffer.writeln(
+            "          ForeignKey(column: '${junction['joinColumn']}', referencedTable: '${junction['ownerTable']}', referencedColumn: 'id', onDelete: ForeignKeyAction.cascade),",
+          );
+          buffer.writeln(
+            "          ForeignKey(column: '${junction['inverseColumn']}', referencedTable: '${junction['targetTable']}', referencedColumn: 'id', onDelete: ForeignKeyAction.cascade),",
+          );
+          buffer.writeln("        ],");
+          buffer.writeln("      ),");
+          buffer.writeln("    );");
+          break;
+
+        case _ChangeType.dropJunctionTable:
+          buffer.writeln("    await dropTable('${change.tableName}');");
+          break;
+      }
+    }
+
+    buffer.writeln('  }');
+    buffer.writeln();
+
+    // Generate down statements (reverse order)
+    buffer.writeln('  @override');
+    buffer.writeln('  Future<void> down() async {');
+
+    for (final change in changes.reversed) {
+      switch (change.type) {
+        case _ChangeType.addTable:
+          buffer.writeln("    await dropTable('${change.tableName}');");
+          break;
+
+        case _ChangeType.dropTable:
+          buffer.writeln(
+            "    // Cannot restore dropped table ${change.tableName} - manual intervention required",
+          );
+          break;
+
+        case _ChangeType.addColumn:
+          buffer.writeln(
+            "    await dropColumn('${change.tableName}', '${change.columnName}');",
+          );
+          break;
+
+        case _ChangeType.dropColumn:
+          buffer.writeln(
+            "    // Cannot restore dropped column ${change.columnName} - manual intervention required",
+          );
+          break;
+
+        case _ChangeType.alterColumn:
+          final details = change.details as Map<String, dynamic>;
+          final oldCol = details['old'] as Map<String, dynamic>;
+          buffer.writeln(
+            "    await connection.execute(\"ALTER TABLE ${change.tableName} ALTER COLUMN ${change.columnName} TYPE ${oldCol['type']}\");",
+          );
+          break;
+
+        case _ChangeType.addJunctionTable:
+          buffer.writeln("    await dropTable('${change.tableName}');");
+          break;
+
+        case _ChangeType.dropJunctionTable:
+          buffer.writeln(
+            "    // Cannot restore dropped junction table ${change.tableName} - manual intervention required",
+          );
+          break;
+      }
+    }
+
+    buffer.writeln('  }');
+    buffer.writeln('}');
 
     return buffer.toString();
   }
@@ -1034,6 +1532,32 @@ class _JunctionTableInfo {
     required this.inverseColumnName,
     required this.inverseColumnRef,
     required this.createIndex,
+  });
+}
+
+/// Types of schema changes
+enum _ChangeType {
+  addTable,
+  dropTable,
+  addColumn,
+  dropColumn,
+  alterColumn,
+  addJunctionTable,
+  dropJunctionTable,
+}
+
+/// Represents a schema change
+class _SchemaChange {
+  final _ChangeType type;
+  final String tableName;
+  final String? columnName;
+  final dynamic details;
+
+  _SchemaChange({
+    required this.type,
+    required this.tableName,
+    this.columnName,
+    this.details,
   });
 }
 
