@@ -69,6 +69,9 @@ abstract class DatabaseMigration {
   }
 
   /// Helper to add column (skips if exists)
+  ///
+  /// If [nullable] is false, [defaultValue] is required to avoid errors
+  /// when adding a NOT NULL column to a table with existing rows.
   Future<void> addColumn({
     required String table,
     required String column,
@@ -76,6 +79,14 @@ abstract class DatabaseMigration {
     bool nullable = true,
     String? defaultValue,
   }) async {
+    // Validate: NOT NULL columns require a default value
+    if (!nullable && defaultValue == null) {
+      throw ArgumentError(
+        'Cannot add NOT NULL column "$column" without a default value. '
+        'Existing rows would have no value for this column.',
+      );
+    }
+
     final exists = await _columnExists(table, column);
     if (exists) return;
 

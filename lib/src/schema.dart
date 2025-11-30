@@ -1,3 +1,5 @@
+import 'package:collection/collection.dart';
+
 import 'database/database_connection.dart';
 
 /// Database schema representation for entities
@@ -97,6 +99,60 @@ enum ForeignKeyAction {
   setNull,
   setDefault,
   noAction,
+}
+
+/// SQL column types with their SQL string representation
+enum SQLType {
+  // Integer types
+  integer('INTEGER', 'integer'),
+  bigint('BIGINT', 'bigint'),
+  smallint('SMALLINT', 'smallint'),
+  serial('SERIAL', 'serial'),
+  bigserial('BIGSERIAL', 'bigserial'),
+
+  // Text types
+  text('TEXT', 'text'),
+  varchar('VARCHAR', 'varchar'),
+  char('CHAR', 'char'),
+
+  // Numeric types
+  real('REAL', 'real'),
+  doublePrecision('DOUBLE PRECISION', 'double_precision'),
+  numeric('NUMERIC', 'numeric'),
+  decimal('DECIMAL', 'decimal'),
+
+  // Boolean
+  boolean('BOOLEAN', 'boolean'),
+
+  // Date/Time types
+  timestamp('TIMESTAMP', 'timestamp'),
+  timestamptz('TIMESTAMPTZ', 'timestamptz'),
+  date('DATE', 'date'),
+  time('TIME', 'time'),
+  timetz('TIMETZ', 'timetz'),
+  interval('INTERVAL', 'interval'),
+
+  // Binary
+  bytea('BYTEA', 'bytea'),
+  blob('BLOB', 'blob'),
+
+  // JSON
+  json('JSON', 'json'),
+  jsonb('JSONB', 'jsonb'),
+
+  // UUID
+  uuid('UUID', 'uuid')
+  ;
+
+  final String sqlType;
+  final String sqlTypeName;
+  const SQLType(this.sqlType, this.sqlTypeName);
+
+  static SQLType fromName(String name) =>
+      values.firstWhereOrNull((e) => e.sqlTypeName == name) ?? SQLType.text;
+
+  static String toSql(String name) =>
+      values.firstWhereOrNull((e) => e.name == name)?.sqlType ?? 'TEXT';
 }
 
 // ============================================================================
