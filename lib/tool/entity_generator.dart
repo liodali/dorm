@@ -637,8 +637,32 @@ ${cases.join('\n')}
       final targetEntity = _extractTargetEntity(annotation);
       final mappedBy = _extractMappedBy(annotation);
 
-      // Skip inverse side (mappedBy is set)
-      if (mappedBy != null) continue;
+      // For inverse side (mappedBy is set), generate read-only getter
+      if (mappedBy != null) {
+        // Inverse side - need to query via the owning side's join table
+        // The owning side is the targetEntity, and mappedBy tells us the field name
+        final targetTable = _snakeCase(targetEntity);
+        // Junction table is named based on the owning side (target entity)
+        final joinTableName = '${targetTable}_${tableName}';
+        final joinColumn = '${targetTable}_id';
+        final inverseColumn = '${tableName}_id';
+
+        methods.add('''
+  /// Get all ${targetEntity}s related to this $className (inverse side of ManyToMany)
+  Future<List<$targetEntity>> get${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id) async {
+    final sql = """
+      SELECT t.* 
+      FROM $targetTable t 
+      INNER JOIN $joinTableName jt ON t.id = jt.$joinColumn 
+      WHERE jt.$inverseColumn = @id
+    """;
+    final results = await connection.query(sql, parameters: {'id': ${_toCamelCase(className)}Id});
+    final repo = ${targetEntity}Repository();
+    repo.setConnection(connection);
+    return results.map((r) => repo.fromRow(r)).toList();
+  }''');
+        continue;
+      }
 
       final joinTableInfo = _extractJoinTableInfo(
         annotation,
@@ -857,8 +881,8 @@ ${cases.join('\n')}
       final mappedBy = _extractMappedBy(annotation);
       final isOwning = _extractIsOwning(annotation);
 
-      // ManyToMany (owning side only - no mappedBy)
-      if (annotationName == 'ManyToMany' && mappedBy == null) {
+      // ManyToMany (both owning and inverse sides now have getters)
+      if (annotationName == 'ManyToMany') {
         relLoaders.add('''
       if (includes.contains('$fieldName')) {
         final ${fieldName}Data = await get${_toPascalCase(fieldName)}(entity.id!);
@@ -942,8 +966,8 @@ $relLoadersCode
       final mappedBy = _extractMappedBy(annotation);
       final isOwning = _extractIsOwning(annotation);
 
-      // ManyToMany (owning side only)
-      if (annotationName == 'ManyToMany' && mappedBy == null) {
+      // ManyToMany (both owning and inverse sides now have getters)
+      if (annotationName == 'ManyToMany') {
         methods.add('''
   /// Find $className by ID with $fieldName loaded
   Future<({$className entity, List<$targetEntity> $fieldName})?> findByIdWith${_toPascalCase(fieldName)}(int id) async {
