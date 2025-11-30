@@ -6,5 +6,4 @@ library;
 export 'entity.dart';
 export 'relationship.dart';
 export 'query.dart';
-export 'migration.dart';
 export 'database.dart';

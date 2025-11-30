@@ -7,6 +7,7 @@ import 'models/user_entity.dart';
 
 part 'db.schemas.g.dart';
 part 'db.db.g.dart';
+part 'db.migration.g.dart';
 
 @Db(
   entities: [UserEntity, PostEntity, BlogEntity, ProductEntity],
