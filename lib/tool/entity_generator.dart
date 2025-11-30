@@ -565,7 +565,7 @@ ${cases.join('\n')}
     String targetEntity,
   ) {
     final source = annotation.toSource();
-    final targetTable = _snakeCase(targetEntity);
+    final targetTableFallback = _snakeCase(targetEntity);
 
     // Try to extract from JoinTable annotation
     final tableNameMatch = RegExp(
@@ -578,10 +578,18 @@ ${cases.join('\n')}
       r'''inverseJoinColumn:\s*JoinColumn\s*\([^)]*name:\s*['"](\w+)['"]''',
     ).firstMatch(source);
 
+    // Derive target table from inverseJoinColumn name (e.g., 'products_id' -> 'products')
+    final inverseColumn =
+        inverseColMatch?.group(1) ?? '${targetTableFallback}_id';
+    final targetTable = inverseColumn.endsWith('_id')
+        ? inverseColumn.substring(0, inverseColumn.length - 3)
+        : targetTableFallback;
+
     return {
       'tableName': tableNameMatch?.group(1) ?? '${ownerTableName}_$targetTable',
       'joinColumn': joinColMatch?.group(1) ?? '${ownerTableName}_id',
-      'inverseColumn': inverseColMatch?.group(1) ?? '${targetTable}_id',
+      'inverseColumn': inverseColumn,
+      'targetTable': targetTable,
     };
   }
 
@@ -672,7 +680,7 @@ ${cases.join('\n')}
       final joinTableName = joinTableInfo['tableName']!;
       final joinColumn = joinTableInfo['joinColumn']!;
       final inverseColumn = joinTableInfo['inverseColumn']!;
-      final targetTable = _snakeCase(targetEntity);
+      final targetTable = joinTableInfo['targetTable']!;
 
       // Generate get method for fetching related entities
       methods.add('''
