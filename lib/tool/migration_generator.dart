@@ -5,6 +5,7 @@ import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dorm/src/annotation.dart';
+import 'package:dorm/src/schema.dart' show SQLType;
 import 'package:source_gen/source_gen.dart';
 
 /// Generator for database migrations
@@ -616,8 +617,9 @@ class _${className}Migration$version extends DatabaseMigration {
           for (final col in (table['columns'] as List? ?? [])) {
             final pkStr = col['primaryKey'] == true ? ', primaryKey: true' : '';
             final nullStr = col['nullable'] == true ? ', nullable: true' : '';
+            final sqlTypeEnum = _toSQLTypeEnum(col['type'] as String);
             buffer.writeln(
-              "          ColumnSchema(name: '${col['name']}', type: '${col['type']}'$nullStr$pkStr),",
+              "          ColumnSchema(name: '${col['name']}', type: SQLType.${sqlTypeEnum.name}.sqlType$nullStr$pkStr),",
             );
           }
           buffer.writeln("        ],");
@@ -631,15 +633,23 @@ class _${className}Migration$version extends DatabaseMigration {
 
         case _ChangeType.addColumn:
           final col = change.details as Map<String, dynamic>;
-          final nullStr = col['nullable'] == true ? '' : ' NOT NULL';
-          buffer.writeln(
-            "    await addColumn('${change.tableName}', '${change.columnName}', '${col['type']}$nullStr');",
-          );
+          final sqlType = _toSQLTypeEnum(col['type'] as String);
+          final nullable = col['nullable'] == true;
+          final defaultValue = _getDefaultValueForType(sqlType, nullable);
+          if (nullable) {
+            buffer.writeln(
+              "    await addColumn(table: '${change.tableName}', column: '${change.columnName}', type: SQLType.${sqlType.name}.sqlType, nullable: true);",
+            );
+          } else {
+            buffer.writeln(
+              "    await addColumn(table: '${change.tableName}', column: '${change.columnName}', type: SQLType.${sqlType.name}.sqlType, nullable: false, defaultValue: '$defaultValue');",
+            );
+          }
           break;
 
         case _ChangeType.dropColumn:
           buffer.writeln(
-            "    await dropColumn('${change.tableName}', '${change.columnName}');",
+            "    await dropColumn(table: '${change.tableName}', column: '${change.columnName}');",
           );
           break;
 
@@ -662,10 +672,10 @@ class _${className}Migration$version extends DatabaseMigration {
           buffer.writeln("        tableName: '${change.tableName}',");
           buffer.writeln("        columns: [");
           buffer.writeln(
-            "          ColumnSchema(name: '${junction['joinColumn']}', type: 'INTEGER'),",
+            "          ColumnSchema(name: '${junction['joinColumn']}', type: SQLType.integer.sqlType),",
           );
           buffer.writeln(
-            "          ColumnSchema(name: '${junction['inverseColumn']}', type: 'INTEGER'),",
+            "          ColumnSchema(name: '${junction['inverseColumn']}', type: SQLType.integer.sqlType),",
           );
           buffer.writeln("        ],");
           buffer.writeln(
@@ -710,7 +720,7 @@ class _${className}Migration$version extends DatabaseMigration {
 
         case _ChangeType.addColumn:
           buffer.writeln(
-            "    await dropColumn('${change.tableName}', '${change.columnName}');",
+            "    await dropColumn(table: '${change.tableName}', column: '${change.columnName}');",
           );
           break;
 
@@ -807,8 +817,9 @@ class _${className}InitialMigration extends DatabaseMigration {
       for (final column in entity.columns) {
         final pkStr = column.isPrimaryKey ? ', primaryKey: true' : '';
         final nullableStr = column.isNullable ? ', nullable: true' : '';
+        final sqlTypeEnum = _toSQLTypeEnum(column.sqlType);
         buffer.writeln(
-          "          ColumnSchema(name: '${column.name}', type: '${column.sqlType}'$nullableStr$pkStr),",
+          "          ColumnSchema(name: '${column.name}', type: SQLType.${sqlTypeEnum.name}.sqlType$nullableStr$pkStr),",
         );
       }
 
@@ -840,10 +851,10 @@ class _${className}InitialMigration extends DatabaseMigration {
       buffer.writeln("        tableName: '${junction.tableName}',");
       buffer.writeln('        columns: [');
       buffer.writeln(
-        "          ColumnSchema(name: '${junction.joinColumnName}', type: 'INTEGER'),",
+        "          ColumnSchema(name: '${junction.joinColumnName}', type: SQLType.integer.sqlType),",
       );
       buffer.writeln(
-        "          ColumnSchema(name: '${junction.inverseColumnName}', type: 'INTEGER'),",
+        "          ColumnSchema(name: '${junction.inverseColumnName}', type: SQLType.integer.sqlType),",
       );
       buffer.writeln('        ],');
       buffer.writeln('        foreignKeys: [');
@@ -979,6 +990,54 @@ extension ${className}Migrations on $className {
     }
   }
 
+  /// Convert SQL type string to SQLType enum name
+  SQLType _toSQLTypeEnum(String sqlType) {
+    return SQLType.fromName(sqlType);
+  }
+
+  /// Get a sensible default value for a SQL type when adding NOT NULL column
+  String _getDefaultValueForType(SQLType sqlType, bool nullable) {
+    if (nullable) return '';
+
+    switch (sqlType) {
+      case SQLType.integer:
+      case SQLType.bigint:
+      case SQLType.smallint:
+      case SQLType.serial:
+      case SQLType.bigserial:
+        return '0';
+      case SQLType.real:
+      case SQLType.doublePrecision:
+      case SQLType.numeric:
+      case SQLType.decimal:
+        return '0.0';
+      case SQLType.boolean:
+        return 'false';
+      case SQLType.text:
+      case SQLType.varchar:
+      case SQLType.char:
+        return "''";
+      case SQLType.timestamp:
+      case SQLType.timestamptz:
+        return 'CURRENT_TIMESTAMP';
+      case SQLType.date:
+        return 'CURRENT_DATE';
+      case SQLType.time:
+      case SQLType.timetz:
+        return 'CURRENT_TIME';
+      case SQLType.interval:
+        return "'0'";
+      case SQLType.json:
+      case SQLType.jsonb:
+        return "'{}'";
+      case SQLType.uuid:
+        return "gen_random_uuid()";
+      case SQLType.bytea:
+      case SQLType.blob:
+        return "''";
+    }
+  }
+
   /// Extract DbConfig from annotation
   _DbConfigInfo? _extractDbConfig(ConstantReader annotation) {
     final configReader = annotation.peek('config');
@@ -997,12 +1056,13 @@ extension ${className}Migrations on $className {
     final dbTypeField = configObj.getField('dbType');
     if (dbTypeField != null) {
       final index = dbTypeField.getField('index')?.toIntValue();
-      if (index == 0)
+      if (index == 0) {
         dbType = 'postgresql';
-      else if (index == 1)
+      } else if (index == 1) {
         dbType = 'mysql';
-      else if (index == 2)
+      } else if (index == 2) {
         dbType = 'sqlite';
+      }
     }
 
     return _DbConfigInfo(
