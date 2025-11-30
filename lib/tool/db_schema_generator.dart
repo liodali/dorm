@@ -347,14 +347,59 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     return indexes;
   }
 
-  /// Extract foreign keys from fields
+  /// Extract foreign keys from fields and ManyToOne annotations
   List<_ForeignKeyInfo> _extractForeignKeys(ClassElement element) {
     final foreignKeys = <_ForeignKeyInfo>[];
+    final processedColumns = <String>{};
 
+    // First, extract foreign keys from ManyToOne annotations
+    for (final field in element.fields) {
+      if (field.isStatic) continue;
+
+      final manyToOneAnnotation = _getFieldAnnotation(field, 'ManyToOne');
+      if (manyToOneAnnotation != null) {
+        final source = manyToOneAnnotation.toSource();
+
+        // Extract targetEntity
+        final targetMatch = RegExp(r'targetEntity:\s*(\w+)').firstMatch(source);
+        if (targetMatch != null) {
+          final targetEntityName = targetMatch.group(1)!;
+          final targetTableName = _toSnakeCase(targetEntityName);
+
+          // Extract foreignKey or generate default
+          final fkMatch = RegExp(
+            r'''foreignKey:\s*['"](\w+)['"]''',
+          ).firstMatch(source);
+          final foreignKeyColumn = fkMatch?.group(1) ?? '${targetTableName}_id';
+
+          // Extract referencedColumn (default: 'id')
+          final refColMatch = RegExp(
+            r'''referencedColumn:\s*['"](\w+)['"]''',
+          ).firstMatch(source);
+          final referencedColumn = refColMatch?.group(1) ?? 'id';
+
+          foreignKeys.add(
+            _ForeignKeyInfo(
+              column: foreignKeyColumn,
+              referencedTable: targetTableName,
+              referencedColumn: referencedColumn,
+            ),
+          );
+          processedColumns.add(foreignKeyColumn);
+        }
+      }
+    }
+
+    // Then, extract from regular fields
     for (final field in element.fields) {
       if (field.isStatic) continue;
       if (_isRelationshipField(field)) continue;
       if (_hasAnnotation(field, 'Ignore')) continue;
+
+      final columnName = _toSnakeCase(field.displayName);
+
+      // Skip if already processed via ManyToOne
+      if (processedColumns.contains(columnName)) continue;
 
       // Check for ForeignKeyConstraint annotation
       final fkAnnotation = _getFieldAnnotation(field, 'ForeignKeyConstraint');
@@ -362,8 +407,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
         final value = fkAnnotation.computeConstantValue();
         if (value != null) {
           final column =
-              value.getField('column')?.toStringValue() ??
-              _toSnakeCase(field.displayName);
+              value.getField('column')?.toStringValue() ?? columnName;
           final referencedTable = value
               .getField('referencedTable')
               ?.toStringValue();
@@ -387,7 +431,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
         final refTable = _inferReferencedTable(field.displayName);
         foreignKeys.add(
           _ForeignKeyInfo(
-            column: _toSnakeCase(field.displayName),
+            column: columnName,
             referencedTable: refTable,
             referencedColumn: 'id',
           ),

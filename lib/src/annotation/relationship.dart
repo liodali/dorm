@@ -96,46 +96,71 @@ class OneToOne {
 
 /// OneToMany relationship annotation
 ///
-/// Defines a one-to-many or many-to-one relationship between entities.
-/// Use `isOwning: true` on the side that owns the foreign key column.
+/// Defines a one-to-many relationship between entities.
+/// This is the owning side - a FK column will be created in the target entity's table.
+/// The FK column name is automatically derived as {ownerEntity}_id (snake_case).
 ///
 /// Example:
 /// ```dart
-/// // In UserEntity (the "one" side - inverse)
-/// @OneToMany(
-///   targetEntity: PostEntity,
-///   mappedBy: 'author',  // Field name in PostEntity that references UserEntity
-/// )
+/// // In UserEntity - owns the relationship
+/// // Automatically creates user_id FK column in posts table
+/// @OneToMany(targetEntity: PostEntity)
 /// List<PostEntity>? posts;
-///
-/// // In PostEntity (the "many" side - owning, has FK column)
-/// @OneToMany(
-///   targetEntity: UserEntity,
-///   foreignKey: 'user_id',  // FK column name in this table
-///   referencedColumn: 'id', // Referenced column in UserEntity
-///   isOwning: true,
-/// )
-/// UserEntity? author;
 /// ```
 class OneToMany {
   /// The target entity type for this relationship
   final Type targetEntity;
 
-  /// Field name in the target entity that owns the relationship
-  /// Used on the inverse side (the "one" side) to reference the owning side's field
-  final String? mappedBy;
+  /// Whether to cascade delete operations
+  final bool cascadeDelete;
+
+  /// Whether to lazy load the relationship
+  final bool lazyLoad;
+
+  /// Whether to eager load the relationship
+  final bool eagerLoad;
+
+  /// Action to take on delete of this entity
+  final RelationAction onDelete;
+
+  /// Action to take on update of this entity
+  final RelationAction onUpdate;
+
+  const OneToMany({
+    required this.targetEntity,
+    this.cascadeDelete = false,
+    this.lazyLoad = true,
+    this.eagerLoad = false,
+    this.onDelete = RelationAction.noAction,
+    this.onUpdate = RelationAction.noAction,
+  });
+}
+
+/// ManyToOne relationship annotation
+///
+/// Defines a many-to-one relationship between entities.
+/// Use this on the "many" side - this entity will have the foreign key column.
+///
+/// Example:
+/// ```dart
+/// // In PostEntity (the "many" side - has FK column)
+/// @ManyToOne(
+///   targetEntity: UserEntity,
+///   foreignKey: 'author_id',  // FK column name in this table
+///   referencedColumn: 'id',   // Referenced column in UserEntity
+/// )
+/// UserEntity? author;
+/// ```
+class ManyToOne {
+  /// The target entity type for this relationship
+  final Type targetEntity;
 
   /// Foreign key column name in this entity's table
-  /// Required on the owning side (the side that has the FK column)
+  /// If not provided, defaults to {targetEntity}_id in snake_case
   final String? foreignKey;
 
   /// Referenced column in the target entity (usually 'id')
   final String referencedColumn;
-
-  /// Whether this is the owning side (has the FK column)
-  /// - true: This entity's table has the FK column (many-to-one direction)
-  /// - false: The target entity's table has the FK column (one-to-many direction)
-  final bool isOwning;
 
   /// Whether to cascade delete operations
   final bool cascadeDelete;
@@ -155,12 +180,10 @@ class OneToMany {
   /// Action to take on update of referenced entity
   final RelationAction onUpdate;
 
-  const OneToMany({
+  const ManyToOne({
     required this.targetEntity,
-    this.mappedBy,
     this.foreignKey,
     this.referencedColumn = 'id',
-    this.isOwning = false,
     this.cascadeDelete = false,
     this.lazyLoad = true,
     this.eagerLoad = false,

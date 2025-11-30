@@ -42,13 +42,17 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
       final idAnnotation = _getAnnotation(field, 'Id');
       final oneToOne = _getAnnotation(field, 'OneToOne');
       final oneToMany = _getAnnotation(field, 'OneToMany');
+      final manyToOne = _getAnnotation(field, 'ManyToOne');
       final manyToMany = _getAnnotation(field, 'ManyToMany');
 
-      if (oneToOne != null || oneToMany != null || manyToMany != null) {
+      if (oneToOne != null ||
+          oneToMany != null ||
+          manyToOne != null ||
+          manyToMany != null) {
         relationships.add({
           'fieldName': field.name,
           'type': _getRelationType(field),
-          'annotation': oneToOne ?? oneToMany ?? manyToMany,
+          'annotation': oneToOne ?? oneToMany ?? manyToOne ?? manyToMany,
         });
         continue;
       }
@@ -215,6 +219,13 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
       relationships,
     );
 
+    // Generate ManyToOne helper methods
+    final manyToOneMethods = _generateManyToOneMethods(
+      className,
+      tableName,
+      relationships,
+    );
+
     // Generate ManyToMany helper methods
     final manyToManyMethods = _generateManyToManyMethods(
       className,
@@ -271,6 +282,8 @@ $loadRelationshipsMethod
 $oneToOneMethods
 
 $oneToManyMethods
+
+$manyToOneMethods
 
 $manyToManyMethods
 
@@ -435,9 +448,11 @@ $findByIdWithRelationMethods
         final isOwning = _extractIsOwning(annotation);
         relationshipType = isOwning ? 'OneToOne_Owning' : 'OneToOne_Inverse';
       } else if (annotation.element?.enclosingElement?.name == 'OneToMany') {
-        // Check if isOwning to determine direction
-        final isOwning = _extractIsOwning(annotation);
-        relationshipType = isOwning ? 'OneToMany_Owning' : 'OneToMany_Inverse';
+        // OneToMany is the owning side (FK is in target table)
+        relationshipType = 'OneToMany';
+      } else if (annotation.element?.enclosingElement?.name == 'ManyToOne') {
+        // ManyToOne is always the owning side (the "many" side with FK)
+        relationshipType = 'ManyToOne';
       } else if (annotation.element?.enclosingElement?.name == 'ManyToMany') {
         relationshipType = 'ManyToMany';
       }
@@ -504,13 +519,12 @@ ${cases.join('\n')}
           final ${fieldName}Data = await ${_toCamelCase(targetEntity)}Repo.findById(entity.$foreignKeyField);
           // Note: Requires mutable entity or copyWith pattern to set entity.$fieldName
           break;''';
-    } else if (relationshipType == 'OneToMany_Inverse') {
-      // Inverse side (the "one" side) - load many related entities
-      final foreignKey =
-          _extractForeignKeyName(annotation) ??
-          '${_snakeCase(ownerTableName)}_id';
+    } else if (relationshipType == 'OneToMany') {
+      // OneToMany - load many related entities from target table
+      // FK is auto-derived as {ownerTable}_id
+      final foreignKey = '${_snakeCase(ownerTableName)}_id';
       return '''        case '$fieldName':
-          // Load OneToMany (inverse) relationship for $fieldName
+          // Load OneToMany relationship for $fieldName
           final ${_toCamelCase(targetEntity)}Repo = ${targetEntity}Repository();
           ${_toCamelCase(targetEntity)}Repo.setConnection(connection);
           final ${fieldName}Data = await ${_toCamelCase(targetEntity)}Repo.query()
@@ -518,11 +532,11 @@ ${cases.join('\n')}
             .toList();
           // Note: Requires mutable entity or copyWith pattern to set entity.$fieldName
           break;''';
-    } else if (relationshipType == 'OneToMany_Owning') {
-      // Owning side (the "many" side) - load single related entity
+    } else if (relationshipType == 'ManyToOne') {
+      // ManyToOne - load single related entity by FK
       final foreignKeyField = _extractForeignKeyField(annotation, fieldName);
       return '''        case '$fieldName':
-          // Load OneToMany (owning) relationship for $fieldName
+          // Load ManyToOne relationship for $fieldName
           final ${_toCamelCase(targetEntity)}Repo = ${targetEntity}Repository();
           ${_toCamelCase(targetEntity)}Repo.setConnection(connection);
           final ${fieldName}Data = await ${_toCamelCase(targetEntity)}Repo.findById(entity.$foreignKeyField);
@@ -643,7 +657,7 @@ ${cases.join('\n')}
         // The owning side is the targetEntity, and mappedBy tells us the field name
         final targetTable = _snakeCase(targetEntity);
         // Junction table is named based on the owning side (target entity)
-        final joinTableName = '${targetTable}_${tableName}';
+        final joinTableName = '${targetTable}_$tableName';
         final joinColumn = '${targetTable}_id';
         final inverseColumn = '${tableName}_id';
 
@@ -784,6 +798,7 @@ ${cases.join('\n')}
   }
 
   /// Generate dedicated methods for OneToMany relationships
+  /// OneToMany is the owning side (FK is in target table)
   String _generateOneToManyMethods(
     String className,
     String tableName,
@@ -797,15 +812,12 @@ ${cases.join('\n')}
 
       final fieldName = rel['fieldName'];
       final targetEntity = _extractTargetEntity(annotation);
-      final isOwning = _extractIsOwning(annotation);
-      final mappedBy = _extractMappedBy(annotation);
 
-      if (!isOwning && mappedBy != null) {
-        // Inverse side (the "one" side) - get list of related entities
-        final foreignKey =
-            _extractForeignKeyName(annotation) ?? '${_snakeCase(className)}_id';
+      // OneToMany is the owning side - FK column is auto-derived as {ownerEntity}_id
+      final foreignKey = '${_snakeCase(className)}_id';
+      final targetTable = _snakeCase(targetEntity);
 
-        methods.add('''
+      methods.add('''
   /// Get all ${targetEntity}s for this $className
   Future<List<$targetEntity>> get${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id) async {
     final repo = ${targetEntity}Repository();
@@ -813,6 +825,37 @@ ${cases.join('\n')}
     return await repo.query()
       .where('$foreignKey = @id', {'id': ${_toCamelCase(className)}Id})
       .toList();
+  }
+
+  /// Add a $targetEntity to this $className's $fieldName
+  Future<void> add${_toPascalCase(_singular(fieldName))}(int ${_toCamelCase(className)}Id, int ${_toCamelCase(targetEntity)}Id) async {
+    final sql = "UPDATE $targetTable SET $foreignKey = @ownerId WHERE id = @targetId";
+    await connection.execute(sql, parameters: {
+      'ownerId': ${_toCamelCase(className)}Id,
+      'targetId': ${_toCamelCase(targetEntity)}Id,
+    });
+  }
+
+  /// Remove a $targetEntity from this $className's $fieldName
+  Future<void> remove${_toPascalCase(_singular(fieldName))}(int ${_toCamelCase(targetEntity)}Id) async {
+    final sql = "UPDATE $targetTable SET $foreignKey = NULL WHERE id = @targetId";
+    await connection.execute(sql, parameters: {
+      'targetId': ${_toCamelCase(targetEntity)}Id,
+    });
+  }
+
+  /// Clear all ${targetEntity}s from this $className's $fieldName
+  Future<void> clear${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id) async {
+    final sql = "UPDATE $targetTable SET $foreignKey = NULL WHERE $foreignKey = @ownerId";
+    await connection.execute(sql, parameters: {'ownerId': ${_toCamelCase(className)}Id});
+  }
+
+  /// Set the $fieldName for this $className (replaces all existing)
+  Future<void> set${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id, List<int> ${_toCamelCase(targetEntity)}Ids) async {
+    await clear${_toPascalCase(fieldName)}(${_toCamelCase(className)}Id);
+    for (final targetId in ${_toCamelCase(targetEntity)}Ids) {
+      await add${_toPascalCase(_singular(fieldName))}(${_toCamelCase(className)}Id, targetId);
+    }
   }
 
   /// Get $className with $fieldName loaded
@@ -833,10 +876,32 @@ ${cases.join('\n')}
     }
     return results;
   }''');
-      } else if (isOwning) {
-        // Owning side (the "many" side) - get single related entity
-        final foreignKeyField = _extractForeignKeyField(annotation, fieldName);
-        methods.add('''
+    }
+
+    return methods.join('\n\n');
+  }
+
+  /// Generate dedicated methods for ManyToOne relationships
+  String _generateManyToOneMethods(
+    String className,
+    String tableName,
+    List<Map<String, dynamic>> relationships,
+  ) {
+    final methods = <String>[];
+
+    for (final rel in relationships) {
+      final annotation = rel['annotation'];
+      if (annotation.element?.enclosingElement?.name != 'ManyToOne') continue;
+
+      final fieldName = rel['fieldName'];
+      final targetEntity = _extractTargetEntity(annotation);
+      final foreignKeyField = _extractForeignKeyField(annotation, fieldName);
+      final foreignKeyColumn =
+          _extractForeignKeyName(annotation) ??
+          '${_snakeCase(targetEntity)}_id';
+
+      // Generate get method for fetching the related entity
+      methods.add('''
   /// Get the $targetEntity for this $className
   Future<$targetEntity?> get${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id) async {
     final entity = await findById(${_toCamelCase(className)}Id);
@@ -848,14 +913,20 @@ ${cases.join('\n')}
 
   /// Set the $targetEntity for this $className
   Future<void> set${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id, int? ${_toCamelCase(targetEntity)}Id) async {
-    final fkColumn = '${_extractForeignKeyName(annotation) ?? '${_snakeCase(targetEntity)}_id'}';
-    final sql = "UPDATE $tableName SET \$fkColumn = @targetId WHERE id = @ownerId";
+    final sql = "UPDATE $tableName SET $foreignKeyColumn = @targetId WHERE id = @ownerId";
     await connection.execute(sql, parameters: {
       'ownerId': ${_toCamelCase(className)}Id,
       'targetId': ${_toCamelCase(targetEntity)}Id,
     });
+  }
+
+  /// Get $className with $fieldName loaded
+  Future<({$className entity, $targetEntity? $fieldName})?> get${className}With${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id) async {
+    final entity = await findById(${_toCamelCase(className)}Id);
+    if (entity == null) return null;
+    final ${fieldName}Data = await get${_toPascalCase(fieldName)}(${_toCamelCase(className)}Id);
+    return (entity: entity, $fieldName: ${fieldName}Data);
   }''');
-      }
     }
 
     return methods.join('\n\n');
@@ -878,8 +949,6 @@ ${cases.join('\n')}
       final annotation = rel['annotation'];
       final fieldName = rel['fieldName'];
       final annotationName = annotation.element?.enclosingElement?.name;
-      final mappedBy = _extractMappedBy(annotation);
-      final isOwning = _extractIsOwning(annotation);
 
       // ManyToMany (both owning and inverse sides now have getters)
       if (annotationName == 'ManyToMany') {
@@ -889,8 +958,8 @@ ${cases.join('\n')}
         relatedData['$fieldName'] = ${fieldName}Data;
       }''');
       }
-      // OneToMany (inverse side - has mappedBy)
-      else if (annotationName == 'OneToMany' && mappedBy != null && !isOwning) {
+      // OneToMany (always inverse side)
+      else if (annotationName == 'OneToMany') {
         relLoaders.add('''
       if (includes.contains('$fieldName')) {
         final ${fieldName}Data = await get${_toPascalCase(fieldName)}(entity.id!);
@@ -899,6 +968,14 @@ ${cases.join('\n')}
       }
       // OneToOne
       else if (annotationName == 'OneToOne') {
+        relLoaders.add('''
+      if (includes.contains('$fieldName')) {
+        final ${fieldName}Data = await get${_toPascalCase(fieldName)}(entity.id!);
+        relatedData['$fieldName'] = ${fieldName}Data;
+      }''');
+      }
+      // ManyToOne
+      else if (annotationName == 'ManyToOne') {
         relLoaders.add('''
       if (includes.contains('$fieldName')) {
         final ${fieldName}Data = await get${_toPascalCase(fieldName)}(entity.id!);

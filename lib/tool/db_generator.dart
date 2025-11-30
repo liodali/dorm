@@ -51,6 +51,9 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     final entityToTableName =
         <String, String>{}; // Map entity name to table name
 
+    // Collect OneToMany relationships to add FK columns to target entities
+    final oneToManyRelations = <_OneToManyInfo>[];
+
     if (entitiesReader != null && !entitiesReader.isNull) {
       final entityList = entitiesReader.listValue;
 
@@ -81,7 +84,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
         }
       }
 
-      // Second pass: extract entity info and relationships
+      // Second pass: extract OneToMany relationships first
       for (final entityValue in entityList) {
         final typeValue = entityValue.toTypeValue();
         if (typeValue != null) {
@@ -89,8 +92,87 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
           if (entityElement is ClassElement && entityElement.name != null) {
             final tableName = entityToTableName[entityElement.name!]!;
 
-            // Extract fields/columns from entity
+            // Extract OneToMany relationships
+            final o2mRelations = _extractOneToManyRelations(
+              entityElement,
+              tableName,
+              entityToTableName,
+            );
+            oneToManyRelations.addAll(o2mRelations);
+          }
+        }
+      }
+
+      // Third pass: extract entity info and relationships
+      for (final entityValue in entityList) {
+        final typeValue = entityValue.toTypeValue();
+        if (typeValue != null) {
+          final entityElement = typeValue.element;
+          if (entityElement is ClassElement && entityElement.name != null) {
+            final tableName = entityToTableName[entityElement.name!]!;
+
+            // Extract fields/columns from entity (including ManyToOne FK columns)
             final columns = _extractColumnsFromEntity(entityElement);
+
+            // Extract ManyToOne relationships and add FK columns if not already present
+            final manyToOneRelations = _extractManyToOneRelations(
+              entityElement,
+              tableName,
+              entityToTableName,
+            );
+
+            // Add FK columns from ManyToOne relationships if not already in columns
+            for (final m2oRel in manyToOneRelations) {
+              final fkColumnExists = columns.any(
+                (c) => c.name == m2oRel.foreignKeyColumn,
+              );
+              if (!fkColumnExists) {
+                columns.add(
+                  _ColumnInfo(
+                    name: m2oRel.foreignKeyColumn,
+                    dartType: 'int?',
+                    sqlType: 'INTEGER',
+                    isNullable: m2oRel.nullable,
+                    isPrimaryKey: false,
+                  ),
+                );
+              }
+            }
+
+            // Add FK columns from OneToMany relationships (where this entity is the target)
+            for (final o2mRel in oneToManyRelations) {
+              if (o2mRel.targetTableName == tableName) {
+                final fkColumnExists = columns.any(
+                  (c) => c.name == o2mRel.foreignKeyColumn,
+                );
+                if (!fkColumnExists) {
+                  columns.add(
+                    _ColumnInfo(
+                      name: o2mRel.foreignKeyColumn,
+                      dartType: 'int?',
+                      sqlType: 'INTEGER',
+                      isNullable: true,
+                      isPrimaryKey: false,
+                    ),
+                  );
+                }
+                // Also add to manyToOneRelations for FK constraint generation
+                manyToOneRelations.add(
+                  _ManyToOneInfo(
+                    ownerEntityName: o2mRel.targetEntityName,
+                    ownerTableName: o2mRel.targetTableName,
+                    targetEntityName: o2mRel.ownerEntityName,
+                    targetTableName: o2mRel.ownerTableName,
+                    fieldName: '',
+                    foreignKeyColumn: o2mRel.foreignKeyColumn,
+                    referencedColumn: o2mRel.referencedColumn,
+                    nullable: true,
+                    onDelete: o2mRel.onDelete,
+                    onUpdate: o2mRel.onUpdate,
+                  ),
+                );
+              }
+            }
 
             // Extract ManyToMany relationships
             final m2mRelations = _extractManyToManyRelations(
@@ -107,6 +189,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
                 repositoryName: '${entityElement.name}Repository',
                 tableName: tableName,
                 columns: columns,
+                manyToOneRelations: manyToOneRelations,
               ),
             );
           }
@@ -261,6 +344,15 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
       columnDefs.add(parts.join(' '));
     }
 
+    // Add foreign key constraints from ManyToOne relationships
+    for (final m2oRel in entity.manyToOneRelations) {
+      final onDeleteAction = _relationActionToSql(m2oRel.onDelete);
+      final onUpdateAction = _relationActionToSql(m2oRel.onUpdate);
+      columnDefs.add(
+        '  FOREIGN KEY (${m2oRel.foreignKeyColumn}) REFERENCES ${m2oRel.targetTableName} (${m2oRel.referencedColumn})$onDeleteAction$onUpdateAction',
+      );
+    }
+
     buffer.writeln(columnDefs.join(',\n'));
     buffer.write(')');
 
@@ -271,6 +363,23 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     buffer.writeln(';');
 
     return buffer.toString();
+  }
+
+  /// Convert RelationAction enum name to SQL clause
+  String _relationActionToSql(String action) {
+    switch (action) {
+      case 'cascade':
+        return ' ON DELETE CASCADE';
+      case 'restrict':
+        return ' ON DELETE RESTRICT';
+      case 'setNull':
+        return ' ON DELETE SET NULL';
+      case 'setDefault':
+        return ' ON DELETE SET DEFAULT';
+      case 'noAction':
+      default:
+        return '';
+    }
   }
 
   /// Generate CREATE TABLE SQL for a junction table
@@ -310,6 +419,139 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     }
 
     return buffer.toString();
+  }
+
+  /// Extract OneToMany relationships from entity
+  List<_OneToManyInfo> _extractOneToManyRelations(
+    ClassElement element,
+    String ownerTableName,
+    Map<String, String> entityToTableName,
+  ) {
+    final relations = <_OneToManyInfo>[];
+    final targetEntityPattern = RegExp(r'targetEntity:\s*(\w+)');
+    final onDeletePattern = RegExp(r'onDelete:\s*RelationAction\.(\w+)');
+    final onUpdatePattern = RegExp(r'onUpdate:\s*RelationAction\.(\w+)');
+
+    for (final field in element.fields) {
+      if (field.isStatic) continue;
+
+      for (final meta in field.metadata.annotations) {
+        if (meta.element?.enclosingElement?.name == 'OneToMany') {
+          final source = meta.toSource();
+
+          // Extract targetEntity
+          final targetMatch = targetEntityPattern.firstMatch(source);
+          if (targetMatch == null) continue;
+          final targetEntityName = targetMatch.group(1)!;
+
+          // Get target table name from map or fallback to snake_case
+          final targetTableName =
+              entityToTableName[targetEntityName] ??
+              _toSnakeCase(targetEntityName);
+
+          // FK column is auto-derived as {ownerTable}_id
+          final foreignKeyColumn = '${ownerTableName}_id';
+
+          // Extract onDelete action
+          final onDeleteMatch = onDeletePattern.firstMatch(source);
+          final onDelete = onDeleteMatch?.group(1) ?? 'noAction';
+
+          // Extract onUpdate action
+          final onUpdateMatch = onUpdatePattern.firstMatch(source);
+          final onUpdate = onUpdateMatch?.group(1) ?? 'noAction';
+
+          relations.add(
+            _OneToManyInfo(
+              ownerEntityName: element.name!,
+              ownerTableName: ownerTableName,
+              targetEntityName: targetEntityName,
+              targetTableName: targetTableName,
+              fieldName: field.name!,
+              foreignKeyColumn: foreignKeyColumn,
+              referencedColumn: 'id',
+              onDelete: onDelete,
+              onUpdate: onUpdate,
+            ),
+          );
+        }
+      }
+    }
+
+    return relations;
+  }
+
+  /// Extract ManyToOne relationships from entity
+  List<_ManyToOneInfo> _extractManyToOneRelations(
+    ClassElement element,
+    String ownerTableName,
+    Map<String, String> entityToTableName,
+  ) {
+    final relations = <_ManyToOneInfo>[];
+    final targetEntityPattern = RegExp(r'targetEntity:\s*(\w+)');
+    final foreignKeyPattern = RegExp(r'''foreignKey:\s*['"](\w+)['"]''');
+    final referencedColumnPattern = RegExp(
+      r'''referencedColumn:\s*['"](\w+)['"]''',
+    );
+    final nullablePattern = RegExp(r'nullable:\s*(true|false)');
+    final onDeletePattern = RegExp(r'onDelete:\s*RelationAction\.(\w+)');
+    final onUpdatePattern = RegExp(r'onUpdate:\s*RelationAction\.(\w+)');
+
+    for (final field in element.fields) {
+      if (field.isStatic) continue;
+
+      for (final meta in field.metadata.annotations) {
+        if (meta.element?.enclosingElement?.name == 'ManyToOne') {
+          final source = meta.toSource();
+
+          // Extract targetEntity
+          final targetMatch = targetEntityPattern.firstMatch(source);
+          if (targetMatch == null) continue;
+          final targetEntityName = targetMatch.group(1)!;
+
+          // Get target table name from map or fallback to snake_case
+          final targetTableName =
+              entityToTableName[targetEntityName] ??
+              _toSnakeCase(targetEntityName);
+
+          // Extract foreignKey or generate default
+          final fkMatch = foreignKeyPattern.firstMatch(source);
+          final foreignKeyColumn = fkMatch?.group(1) ?? '${targetTableName}_id';
+
+          // Extract referencedColumn (default: 'id')
+          final refColMatch = referencedColumnPattern.firstMatch(source);
+          final referencedColumn = refColMatch?.group(1) ?? 'id';
+
+          // Extract nullable (default: true)
+          final nullableMatch = nullablePattern.firstMatch(source);
+          final nullable = nullableMatch?.group(1) != 'false';
+
+          // Extract onDelete action
+          final onDeleteMatch = onDeletePattern.firstMatch(source);
+          final onDelete = onDeleteMatch?.group(1) ?? 'noAction';
+
+          // Extract onUpdate action
+          final onUpdateMatch = onUpdatePattern.firstMatch(source);
+          final onUpdate = onUpdateMatch?.group(1) ?? 'noAction';
+
+          relations.add(
+            _ManyToOneInfo(
+              ownerEntityName: element.name!,
+              ownerTableName: ownerTableName,
+              targetEntityName: targetEntityName,
+              targetTableName: targetTableName,
+              fieldName: field.name!,
+              foreignKeyColumn: foreignKeyColumn,
+              referencedColumn: referencedColumn,
+              nullable: nullable,
+              onDelete: onDelete,
+              onUpdate: onUpdate,
+            ),
+          );
+        }
+      }
+    }
+
+    return relations;
   }
 
   /// Extract ManyToMany relationships from entity
@@ -1288,12 +1530,14 @@ class _EntityInfo {
   final String repositoryName;
   final String tableName;
   final List<_ColumnInfo> columns;
+  final List<_ManyToOneInfo> manyToOneRelations;
 
   _EntityInfo({
     required this.className,
     required this.repositoryName,
     required this.tableName,
     required this.columns,
+    this.manyToOneRelations = const [],
   });
 }
 
@@ -1330,6 +1574,56 @@ class _DbConfigInfo {
     this.password,
     required this.dbType,
     required this.ssl,
+  });
+}
+
+class _OneToManyInfo {
+  final String ownerEntityName;
+  final String ownerTableName;
+  final String targetEntityName;
+  final String targetTableName;
+  final String fieldName;
+  final String foreignKeyColumn;
+  final String referencedColumn;
+  final String onDelete;
+  final String onUpdate;
+
+  _OneToManyInfo({
+    required this.ownerEntityName,
+    required this.ownerTableName,
+    required this.targetEntityName,
+    required this.targetTableName,
+    required this.fieldName,
+    required this.foreignKeyColumn,
+    required this.referencedColumn,
+    required this.onDelete,
+    required this.onUpdate,
+  });
+}
+
+class _ManyToOneInfo {
+  final String ownerEntityName;
+  final String ownerTableName;
+  final String targetEntityName;
+  final String targetTableName;
+  final String fieldName;
+  final String foreignKeyColumn;
+  final String referencedColumn;
+  final bool nullable;
+  final String onDelete;
+  final String onUpdate;
+
+  _ManyToOneInfo({
+    required this.ownerEntityName,
+    required this.ownerTableName,
+    required this.targetEntityName,
+    required this.targetTableName,
+    required this.fieldName,
+    required this.foreignKeyColumn,
+    required this.referencedColumn,
+    required this.nullable,
+    required this.onDelete,
+    required this.onUpdate,
   });
 }
 
