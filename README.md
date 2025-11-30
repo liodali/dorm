@@ -448,6 +448,103 @@ List<RoleEntity>? roles;
 - `mappedBy` references a valid field in the target entity
 - Owning and inverse sides are properly configured
 
+**Complete ManyToMany Example:**
+
+```dart
+// ============================================
+// product_entity.dart - OWNING SIDE
+// ============================================
+import 'package:dorm/dorm.dart';
+
+part 'product_entity.orm.g.dart';
+
+@Entity(tableName: 'products', dbType: DatabaseType.postgresql)
+class ProductEntity {
+  @Id()
+  int? id;
+
+  String name;
+  double price;
+
+  /// Owning side - defines the junction table
+  @ManyToMany(
+    targetEntity: UserEntity,
+    joinTable: JoinTable(
+      name: 'products_users',
+      joinColumn: JoinColumn(name: 'products_id', referencedColumn: 'id'),
+      inverseJoinColumn: JoinColumn(name: 'users_id', referencedColumn: 'id'),
+    ),
+  )
+  List<UserEntity>? users;
+
+  ProductEntity({this.id, required this.name, required this.price});
+}
+
+// ============================================
+// user_entity.dart - INVERSE SIDE
+// ============================================
+import 'package:dorm/dorm.dart';
+
+part 'user_entity.orm.g.dart';
+
+@Entity(tableName: 'users', dbType: DatabaseType.postgresql)
+class UserEntity {
+  @Id()
+  int? id;
+
+  String name;
+  String email;
+
+  /// Inverse side - references the owning side field name
+  @ManyToMany(targetEntity: ProductEntity, mappedBy: 'users')
+  List<ProductEntity>? products;
+
+  UserEntity({this.id, required this.name, required this.email});
+}
+```
+
+**Generated Repository Methods:**
+
+```dart
+// OWNING SIDE (ProductEntityRepository) - Full CRUD operations
+await productRepo.getUsers(productId);           // Get all users for a product
+await productRepo.addUser(productId, userId);    // Add user to product
+await productRepo.removeUser(productId, userId); // Remove user from product
+await productRepo.clearUsers(productId);         // Remove all users from product
+await productRepo.setUsers(productId, [1, 2]);   // Replace all users
+
+// INVERSE SIDE (UserEntityRepository) - Read-only
+await userRepo.getProducts(userId);              // Get all products for a user
+```
+
+**Usage Example:**
+
+```dart
+void main() async {
+  final db = Database();
+  await db.init();
+
+  // Create entities
+  final product = ProductEntity(name: 'Laptop', price: 999.99);
+  final savedProduct = await db.productEntityRepository.save(product);
+
+  final user = UserEntity(name: 'John', email: 'john@example.com');
+  final savedUser = await db.userEntityRepository.save(user);
+
+  // Add relationship (from owning side)
+  await db.productEntityRepository.addUser(savedProduct.id!, savedUser.id!);
+
+  // Query from either side
+  final usersForProduct = await db.productEntityRepository.getUsers(savedProduct.id!);
+  final productsForUser = await db.userEntityRepository.getProducts(savedUser.id!);
+
+  print('Users for product: ${usersForProduct.length}');
+  print('Products for user: ${productsForUser.length}');
+
+  await db.close();
+}
+```
+
 ---
 
 ## Migrations
