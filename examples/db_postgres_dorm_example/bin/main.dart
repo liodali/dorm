@@ -1,4 +1,5 @@
 import 'package:db_postgres_dorm_example/src/db.dart';
+import 'package:db_postgres_dorm_example/src/models/product_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/user_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/post_entity.dart';
 import 'package:dorm/dorm.dart';
@@ -36,7 +37,12 @@ final migrations = <DatabaseMigration>[
     upSql: "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number TEXT;",
     downSql: 'ALTER TABLE users DROP COLUMN IF EXISTS phone_number;',
   ),
-
+RawSqlMigration(
+    version: 7,
+    description: 'Add description column to products',
+    upSql: "ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;",
+    downSql: 'ALTER TABLE products DROP COLUMN IF EXISTS description;',
+  ),
   // // Example 3: Manual migration with callback
   // ManualMigration(
   //   version: 3,
@@ -88,7 +94,7 @@ void main() async {
     // Setup database: connect (using config from annotation), run migrations, validate schema
     print('Setting up database...');
     await db.setup(
-      migrations: migrations,
+      customMigrations: migrations,
       validateSchema: true,
     );
     print('Database setup complete!\n');
@@ -143,6 +149,35 @@ void main() async {
     await db.postEntityRepository.save(post1);
     await db.postEntityRepository.save(post2);
     print('Created 2 posts\n');
+
+    // Create products for the user
+    print('Creating Products ...');
+    final product1 = ProductEntity(
+      name: 'Product 1',
+      description: 'This is my first product!',
+      category: 'Category 1',
+      price: 100,
+    );
+    final product2 = ProductEntity(
+      name: 'Product 2',
+      description: 'This is my second product!',
+      category: 'Category 2',
+      price: 200,
+    );
+   final product1Saved = await db.productEntityRepository.save(product1);
+   final product2Saved = await db.productEntityRepository.save(product2);
+    print('Created 2 products\n');
+
+    await db.userEntityRepository.addProduct(savedUser.id!, product1Saved.id!);
+    await db.userEntityRepository.addProduct(savedUser.id!, product2Saved.id!);
+
+    final productByUser = await db.userEntityRepository.getProducts(
+      savedUser.id!,
+    );
+    print('Product by user: ${productByUser.length}\n');
+    for (final p in productByUser) {
+      print('  - ${p.id}: ${p.name}');
+    }
 
     // Query users
     print('Querying users...');

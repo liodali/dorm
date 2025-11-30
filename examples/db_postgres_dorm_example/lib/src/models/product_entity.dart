@@ -20,15 +20,8 @@ class ProductEntity {
   @Column()
   double price;
 
-  /// Owning side of ManyToMany - defines the junction table
-  @ManyToMany(
-    targetEntity: UserEntity,
-    joinTable: JoinTable(
-      name: 'products_users',
-      joinColumn: JoinColumn(name: 'products_id', referencedColumn: 'id'),
-      inverseJoinColumn: JoinColumn(name: 'users_id', referencedColumn: 'id'),
-    ),
-  )
+  /// Inverse side of ManyToMany - references the owning side field
+  @ManyToMany(targetEntity: UserEntity, mappedBy: 'products')
   List<UserEntity>? users;
 
   ProductEntity({

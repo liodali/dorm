@@ -20,8 +20,18 @@ class UserEntity {
   String? address;
   String? phoneNumber;
 
-  /// Inverse side of ManyToMany - references the owning side field
-  @ManyToMany(targetEntity: ProductEntity, mappedBy: 'users')
+  /// Owning side of ManyToMany - defines the junction table
+  @ManyToMany(
+    targetEntity: ProductEntity,
+    joinTable: JoinTable(
+      name: 'products_users',
+      joinColumn: JoinColumn(name: 'users_id', referencedColumn: 'id'),
+      inverseJoinColumn: JoinColumn(
+        name: 'products_id',
+        referencedColumn: 'id',
+      ),
+    ),
+  )
   List<ProductEntity>? products;
 
   @OneToMany(targetEntity: BlogEntity)
