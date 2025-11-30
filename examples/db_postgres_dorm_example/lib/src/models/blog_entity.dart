@@ -18,7 +18,7 @@ class BlogEntity {
 
   int? userId;
 
-  @OneToMany(targetEntity: UserEntity, foreignKey: 'user_id', isOwning: true)
+  @ManyToOne(targetEntity: UserEntity, foreignKey: 'user_id')
   UserEntity? user;
 
   BlogEntity({

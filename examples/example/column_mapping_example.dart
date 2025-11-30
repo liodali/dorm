@@ -133,11 +133,9 @@ class Product {
   final int categoryId;
 
   // Relationship - not a column
-  @OneToMany(
+  @ManyToOne(
     targetEntity: Category,
     foreignKey: 'category_id',
-    isOwning: true,
-    eagerLoad: false,
   )
   final Category? category;
 
@@ -166,7 +164,7 @@ class Category {
   final String? categoryDescription;
 
   // Relationship
-  @OneToMany(targetEntity: Product, mappedBy: 'categoryId')
+  @OneToMany(targetEntity: Product)
   final List<Product>? products;
 
   const Category({

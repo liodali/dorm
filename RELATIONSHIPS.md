@@ -6,18 +6,19 @@ DORM supports Entity Framework-style relationship loading with the `include()` m
 
 ## Relationship Types Summary
 
-| Annotation    | Description                             | FK Location          | Example        |
-| ------------- | --------------------------------------- | -------------------- | -------------- |
-| `@OneToOne`   | One entity relates to exactly one other | Owning side          | User ↔ Profile |
-| `@OneToMany`  | One entity relates to many others       | "Many" side (owning) | User → Posts   |
-| `@ManyToMany` | Many entities relate to many others     | Junction table       | Users ↔ Roles  |
+| Annotation    | Description                             | FK Location    | Example        |
+| ------------- | --------------------------------------- | -------------- | -------------- |
+| `@OneToOne`   | One entity relates to exactly one other | Owning side    | User ↔ Profile |
+| `@OneToMany`  | One entity relates to many others       | Target entity  | User → Posts   |
+| `@ManyToOne`  | Many entities relate to one other       | This entity    | Post → User    |
+| `@ManyToMany` | Many entities relate to many others     | Junction table | Users ↔ Roles  |
 
 ## Key Concepts
 
 ### Owning vs Inverse Side
 
-- **Owning side** - Has the foreign key column, uses `foreignKey` and `isOwning: true`
-- **Inverse side** - References the owning side, uses `mappedBy`
+- **Owning side** - Has the foreign key column (use `@ManyToOne` with `foreignKey`)
+- **Inverse side** - References the owning side (use `@OneToMany` with `mappedBy`)
 
 ### RelationAction Enum
 
@@ -81,17 +82,43 @@ UserEntity? user;
 
 ## @OneToMany
 
-Defines a one-to-many or many-to-one relationship. Use `isOwning: true` on the side that owns the foreign key column.
+Defines a one-to-many relationship. This is the owning side - a FK column will be automatically created in the target entity's table as `{ownerEntity}_id`.
 
 ### Annotation Reference
 
 ```dart
 class OneToMany {
   final Type targetEntity;           // Related entity type (required)
-  final String? mappedBy;            // Field name in target (inverse side)
-  final String? foreignKey;          // FK column name (owning side)
+  final bool cascadeDelete;          // Cascade delete operations
+  final bool lazyLoad;               // Load on demand (default: true)
+  final bool eagerLoad;              // Load immediately (default: false)
+  final RelationAction onDelete;     // FK constraint action
+  final RelationAction onUpdate;     // FK constraint action
+}
+```
+
+### Example
+
+```dart
+// In UserEntity - owns the relationship
+// Automatically creates user_entity_id FK column in posts table
+@OneToMany(targetEntity: PostEntity)
+List<PostEntity>? posts;
+```
+
+---
+
+## @ManyToOne
+
+Defines a many-to-one relationship. Use this on the "many" side - this entity will have the foreign key column.
+
+### Annotation Reference
+
+```dart
+class ManyToOne {
+  final Type targetEntity;           // Related entity type (required)
+  final String? foreignKey;          // FK column name (default: {targetEntity}_id)
   final String referencedColumn;     // Referenced column (default: 'id')
-  final bool isOwning;               // Whether this side owns the FK
   final bool cascadeDelete;          // Cascade delete operations
   final bool lazyLoad;               // Load on demand (default: true)
   final bool eagerLoad;              // Load immediately (default: false)
@@ -104,19 +131,11 @@ class OneToMany {
 ### Example
 
 ```dart
-// In UserEntity (the "one" side - inverse, no FK column)
-@OneToMany(
-  targetEntity: PostEntity,
-  mappedBy: 'author',  // Field name in PostEntity
-)
-List<PostEntity>? posts;
-
 // In PostEntity (the "many" side - owning, has FK column)
-@OneToMany(
+@ManyToOne(
   targetEntity: UserEntity,
   foreignKey: 'user_id',     // FK column name in posts table
   referencedColumn: 'id',    // Referenced column in users table
-  isOwning: true,
   onDelete: RelationAction.cascade,
 )
 UserEntity? author;
@@ -374,9 +393,7 @@ class User {
 ```dart
 @OneToMany(
   targetEntity: Post,       // Related entity type
-  mappedBy: 'blogId',       // Foreign key field in target entity
-  cascadeDelete: false,     // Delete related entities on parent delete
-  lazyLoad: true,           // Load on demand (default)
+  onDelete: RelationAction.cascade,
 )
 final List<Post>? posts;
 ```
@@ -386,9 +403,9 @@ final List<Post>? posts;
 ```dart
 @ManyToOne(
   targetEntity: Blog,       // Parent entity type
+  foreignKey: 'blog_id',    // FK column name in this table
   nullable: true,           // Can be null
-  cascadeDelete: false,     // Delete this entity when parent is deleted
-  eagerLoad: false,         // Load immediately with parent (default: false)
+  onDelete: RelationAction.cascade,  // FK constraint action
 )
 final Blog? blog;
 ```
@@ -433,18 +450,18 @@ final int authorId;  // Automatically detected as foreign key to 'authors'
 
 ### 3. Relationship Field Naming
 
-Match the `mappedBy` parameter to the foreign key field:
+FK column names are auto-derived from the owner entity name:
 
 ```dart
 class Blog {
-  @OneToMany(targetEntity: Post, mappedBy: 'blogId')
+  // Automatically creates blog_id FK column in posts table
+  @OneToMany(targetEntity: Post)
   final List<Post>? posts;
 }
 
 class Post {
-  final int blogId;  // Must match mappedBy value
-
-  @ManyToOne(targetEntity: Blog)
+  // Optional: define the inverse side with @ManyToOne
+  @ManyToOne(targetEntity: Blog, foreignKey: 'blog_id')
   final Blog? blog;
 }
 ```
@@ -560,11 +577,8 @@ class UserEntity {
   )
   ProfileEntity? profile;
 
-  // One-to-Many: User has many Posts
-  @OneToMany(
-    targetEntity: PostEntity,
-    mappedBy: 'author',
-  )
+  // One-to-Many: User has many Posts (auto-creates user_entity_id FK in posts table)
+  @OneToMany(targetEntity: PostEntity)
   List<PostEntity>? posts;
 
   // Many-to-Many: User has many Roles
@@ -610,17 +624,17 @@ class PostEntity {
 
   String title;
   String content;
+  int? userId;  // FK column
 
-  // Owning side of One-to-Many (has FK column)
-  @OneToMany(
+  // Many-to-One: Post belongs to User (has FK column)
+  @ManyToOne(
     targetEntity: UserEntity,
     foreignKey: 'user_id',
-    isOwning: true,
     onDelete: RelationAction.cascade,
   )
   UserEntity? author;
 
-  PostEntity({this.id, required this.title, required this.content});
+  PostEntity({this.id, required this.title, required this.content, this.userId});
 }
 
 // role_entity.dart

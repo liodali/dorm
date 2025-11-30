@@ -1,6 +1,8 @@
+import 'package:db_postgres_dorm_example/src/models/user_entity.dart';
 import 'package:dorm/dorm.dart';
 
 part 'post_entity.orm.g.dart';
+
 @Entity(tableName: 'posts', dbType: DatabaseType.postgresql)
 class PostEntity {
   @Id()
@@ -11,6 +13,9 @@ class PostEntity {
   String content;
 
   int? userId;
+
+  @ManyToOne(targetEntity: UserEntity, foreignKey: 'user_id')
+  UserEntity? user;
 
   PostEntity({
     this.id,

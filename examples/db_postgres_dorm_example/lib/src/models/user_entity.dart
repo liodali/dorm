@@ -23,9 +23,10 @@ class UserEntity {
   @ManyToMany(targetEntity: ProductEntity, mappedBy: 'users')
   List<ProductEntity>? products;
 
-  @OneToMany(targetEntity: BlogEntity, mappedBy: 'user')
+  @OneToMany(targetEntity: BlogEntity)
   List<BlogEntity>? blogs;
-  @OneToMany(targetEntity: PostEntity, mappedBy: 'user')
+
+  @OneToMany(targetEntity: PostEntity)
   List<PostEntity>? posts;
 
   UserEntity({

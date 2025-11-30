@@ -15,7 +15,7 @@ class Blog {
   @Column(nullable: true)
   final DateTime? createdAt;
 
-  @OneToMany(targetEntity: Post, mappedBy: 'blogId')
+  @OneToMany(targetEntity: Post)
   final List<Post>? posts;
 
   const Blog({
@@ -45,11 +45,9 @@ class Post {
   @Column(nullable: true)
   final DateTime? createdAt;
 
-  @OneToMany(
+  @ManyToOne(
     targetEntity: Blog,
     foreignKey: 'blog_id',
-    isOwning: true,
-    eagerLoad: false,
   )
   final Blog? blog;
 
