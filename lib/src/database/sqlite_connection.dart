@@ -97,7 +97,7 @@ class SQLiteConnection implements DatabaseConnection {
   @override
   Future<void> close() async {
     if (_database != null && _isOpen) {
-      _database!.dispose();
+      _database!.close();
       _isOpen = false;
       _database = null;
     }

@@ -152,7 +152,7 @@ class _SchemaDiffHelper {
 
       final columnName = _toSnakeCase(fieldName);
       final sqlType = _dartTypeToSql(
-        field.type.getDisplayString(withNullability: false),
+        field.type.getDisplayString().replaceAll('?', ''),
       );
 
       // Determine nullability from field type
@@ -455,7 +455,7 @@ class Migration${version}_Update${_toPascalCase(tableName)} extends DatabaseMigr
     } else if (tableName.endsWith('_id')) {
       tableName = tableName.substring(0, tableName.length - 3);
     }
-    return _toSnakeCase(tableName) + 's';
+    return '${_toSnakeCase(tableName)}s';
   }
 }
 

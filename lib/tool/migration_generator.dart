@@ -1237,7 +1237,7 @@ extension ${className}Migrations on $className {
       columns.add(
         _ColumnInfo(
           name: columnName,
-          dartType: field.type.getDisplayString(withNullability: true),
+          dartType: field.type.getDisplayString(),
           sqlType: sqlType,
           isNullable: isNullable,
           isPrimaryKey: isPrimaryKey,

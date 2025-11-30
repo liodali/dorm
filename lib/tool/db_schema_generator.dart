@@ -541,7 +541,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
   }
 
   String _getDartToSqlType(DartType type) {
-    final name = type.getDisplayString(withNullability: false);
+    final name = type.getDisplayString().replaceAll('?', '');
     const typeMap = {
       'String': 'TEXT',
       'int': 'INTEGER',

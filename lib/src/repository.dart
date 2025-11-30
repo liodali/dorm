@@ -56,6 +56,31 @@ abstract class Repository<T> {
 
     return fromRow(result.first);
   }
+  //  /// Save entity (INSERT only)
+  // /// Skips primary key column if autoIncrementPrimaryKey is true and value is null
+  // Future<List<T>> saveAll(List<T> entities) async {
+  //   final rows = entities.map(toRow).toList();
+
+  //   // Filter out auto-increment primary key if value is null
+  //   final insertRow = Map<String, dynamic>.from(rows);
+  //   if (autoIncrementPrimaryKey && insertRow[primaryKeyColumn] == null) {
+  //     insertRow.remove(primaryKeyColumn);
+  //   }
+
+  //   final columns = insertRow.keys.join(', ');
+  //   final placeholders = insertRow.keys.map((k) => '@$k').join(', ');
+
+  //   final sql =
+  //       'INSERT INTO $tableName ($columns) VALUES ($placeholders) RETURNING *';
+
+  //   final result = await connection.query(
+  //     sql,
+  //     parameters: insertRow,
+  //   );
+  //   if (result.isEmpty) throw Exception('Save failed');
+
+  //   return fromRow(result.first);
+  // }
 
   /// Find by primary key
   Future<T?> findById(dynamic id) async {

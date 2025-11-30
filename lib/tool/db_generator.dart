@@ -933,12 +933,13 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     final dbTypeField = configObj.getField('dbType');
     if (dbTypeField != null) {
       final index = dbTypeField.getField('index')?.toIntValue();
-      if (index == 0)
+      if (index == 0) {
         dbType = 'postgresql';
-      else if (index == 1)
+      } else if (index == 1) {
         dbType = 'mysql';
-      else if (index == 2)
+      } else if (index == 2) {
         dbType = 'sqlite';
+      }
     }
 
     return _DbConfigInfo(
@@ -1001,7 +1002,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
       columns.add(
         _ColumnInfo(
           name: columnName,
-          dartType: field.type.getDisplayString(withNullability: true),
+          dartType: field.type.getDisplayString(),
           sqlType: sqlType,
           isNullable: isNullable,
           isPrimaryKey: isPrimaryKey,
@@ -1013,7 +1014,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
   }
 
   String _getDartToSqlType(DartType type) {
-    final name = type.getDisplayString(withNullability: false);
+    final name = type.getDisplayString().replaceAll('?', '');
     const typeMap = {
       'String': 'TEXT',
       'int': 'INTEGER',
