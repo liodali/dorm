@@ -19,6 +19,23 @@ final migrations = <DatabaseMigration>[
     upSql: "ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT;",
     downSql: 'ALTER TABLE users DROP COLUMN IF EXISTS address;',
   ),
+  // // Example 3: Manual migration with callback
+  ManualMigration(
+    version: 4,
+    description: 'Seed admin user',
+    onUp: (connection, schemaManager) async {
+      // empty migration
+    },
+    onDown: (connection, schemaManager) async {
+      // empty migration
+    },
+  ),
+  RawSqlMigration(
+    version: 5,
+    description: 'Add phone_number column to users',
+    upSql: "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number TEXT;",
+    downSql: 'ALTER TABLE users DROP COLUMN IF EXISTS phone_number;',
+  ),
 
   // // Example 3: Manual migration with callback
   // ManualMigration(

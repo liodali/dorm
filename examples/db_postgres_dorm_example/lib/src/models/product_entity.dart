@@ -8,8 +8,16 @@ class ProductEntity {
   @Id()
   int? id;
 
+  @Column()
   String name;
 
+  @Column()
+  String description;
+
+  @Column()
+  String category;
+
+  @Column()
   double price;
 
   /// Owning side of ManyToMany - defines the junction table
@@ -26,6 +34,8 @@ class ProductEntity {
   ProductEntity({
     this.id,
     required this.name,
+    required this.description,
+    required this.category,
     required this.price,
   });
 }

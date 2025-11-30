@@ -21,9 +21,7 @@ include: package:lints/recommended.yaml
 
 analyzer:
   exclude:
-    - "**/*.orm.g.dart"
-    - "**/*.db.g.dart"
-    - "**/*.schema.g.dart"
+    - "**/**.g.dart"
 # For more information about the core and recommended set of lints, see
 # https://dart.dev/go/core-lints
 
