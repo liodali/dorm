@@ -217,12 +217,42 @@ class MigrationGenerator extends GeneratorForAnnotation<Db> {
     final currentSchema = _schemaToJson(entities, junctionTables);
     final schemaHash = _generateSchemaHash(entities, junctionTables);
 
-    // Load previous schema and compare
+    // Migration history file path
+    final migrationsFilePath = '$packageRoot.dorm/$dbName.migrations.json';
+
+    // Load previous schema and migration history
     final previousSchema = await _loadPreviousSchema(schemaFilePath);
+    final migrationHistory = await _loadMigrationHistory(migrationsFilePath);
+
+    // Compare schemas to detect changes
     final schemaChanges = _compareSchemas(previousSchema, currentSchema);
+
+    // Determine if we need a new migration
+    final hasChanges = schemaChanges.isNotEmpty;
+    final isInitial = previousSchema == null;
+
+    // Update migration history if there are changes
+    if (hasChanges && !isInitial) {
+      await _addMigrationToHistory(
+        migrationsFilePath,
+        migrationHistory,
+        migrationVersion,
+        schemaChanges,
+        schemaHash,
+      );
+    } else if (isInitial) {
+      // Initialize migration history with version 1
+      await _initializeMigrationHistory(
+        migrationsFilePath,
+        schemaHash,
+      );
+    }
 
     // Save current schema for next comparison
     await _saveSchema(schemaFilePath, currentSchema);
+
+    // Reload migration history after updates
+    final updatedHistory = await _loadMigrationHistory(migrationsFilePath);
 
     return _generateMigrationCode(
       className: className!,
@@ -233,6 +263,7 @@ class MigrationGenerator extends GeneratorForAnnotation<Db> {
       schemaHash: schemaHash,
       previousSchema: previousSchema,
       schemaChanges: schemaChanges,
+      migrationHistory: updatedHistory,
     );
   }
 
@@ -307,6 +338,95 @@ class MigrationGenerator extends GeneratorForAnnotation<Db> {
     await file.parent.create(recursive: true);
     await file.writeAsString(
       const JsonEncoder.withIndent('  ').convert(schema),
+    );
+  }
+
+  /// Load migration history from JSON file
+  Future<Map<String, dynamic>?> _loadMigrationHistory(String filePath) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      return null;
+    }
+    try {
+      final content = await file.readAsString();
+      return json.decode(content) as Map<String, dynamic>;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Initialize migration history with initial migration
+  Future<void> _initializeMigrationHistory(
+    String filePath,
+    String schemaHash,
+  ) async {
+    final history = {
+      'version': 1,
+      'createdAt': DateTime.now().toIso8601String(),
+      'migrations': [
+        {
+          'version': 1,
+          'description': 'Initial schema creation',
+          'schemaHash': schemaHash,
+          'createdAt': DateTime.now().toIso8601String(),
+          'changes': ['initial'],
+        },
+      ],
+    };
+    final file = File(filePath);
+    await file.parent.create(recursive: true);
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(history),
+    );
+  }
+
+  /// Add a new migration to history
+  Future<void> _addMigrationToHistory(
+    String filePath,
+    Map<String, dynamic>? existingHistory,
+    int version,
+    List<_SchemaChange> changes,
+    String schemaHash,
+  ) async {
+    final migrations = existingHistory?['migrations'] as List? ?? [];
+
+    // Check if this version already exists
+    final existingVersions = migrations.map((m) => m['version'] as int).toSet();
+    if (existingVersions.contains(version)) {
+      // Version already exists, don't add duplicate
+      return;
+    }
+
+    // Add new migration
+    migrations.add({
+      'version': version,
+      'description': 'Schema changes - version $version',
+      'schemaHash': schemaHash,
+      'createdAt': DateTime.now().toIso8601String(),
+      'changes': changes
+          .map(
+            (c) => {
+              'type': c.type.name,
+              'table': c.tableName,
+              'column': c.columnName,
+              'details': c.details,
+            },
+          )
+          .toList(),
+    });
+
+    final history = {
+      'version': 1,
+      'createdAt':
+          existingHistory?['createdAt'] ?? DateTime.now().toIso8601String(),
+      'updatedAt': DateTime.now().toIso8601String(),
+      'migrations': migrations,
+    };
+
+    final file = File(filePath);
+    await file.parent.create(recursive: true);
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(history),
     );
   }
 
@@ -488,14 +608,21 @@ class MigrationGenerator extends GeneratorForAnnotation<Db> {
     required String schemaHash,
     required Map<String, dynamic>? previousSchema,
     required List<_SchemaChange> schemaChanges,
+    required Map<String, dynamic>? migrationHistory,
   }) {
     final buffer = StringBuffer();
+
+    // Get all migrations from history
+    final storedMigrations = (migrationHistory?['migrations'] as List?) ?? [];
+    final migrationVersions =
+        storedMigrations.map((m) => m['version'] as int).toList()..sort();
 
     // Header comment
     buffer.writeln('// Generated migrations for $className');
     buffer.writeln('// Migration version: $migrationVersion');
     buffer.writeln('// Schema hash: $schemaHash');
     buffer.writeln('// SQL Dialect: $sqlDialect');
+    buffer.writeln('// Stored migrations: ${migrationVersions.join(', ')}');
 
     if (previousSchema == null) {
       buffer.writeln(
@@ -510,50 +637,52 @@ class MigrationGenerator extends GeneratorForAnnotation<Db> {
     }
     buffer.writeln();
 
-    // Generate migrations list
-    if (previousSchema == null) {
-      // Initial migration
-      buffer.writeln(_generateMigrationsGetter(className, 1));
-      buffer.writeln(
-        _generateInitialMigration(
-          className,
-          entities,
-          junctionTables,
-          sqlDialect,
-        ),
-      );
-    } else if (schemaChanges.isNotEmpty) {
-      // Diff migration
-      buffer.writeln(
-        _generateMigrationsGetterWithDiff(className, migrationVersion),
-      );
-      buffer.writeln(
-        _generateInitialMigration(
-          className,
-          entities,
-          junctionTables,
-          sqlDialect,
-        ),
-      );
-      buffer.writeln(
-        _generateDiffMigration(
-          className,
-          schemaChanges,
-          migrationVersion,
-          sqlDialect,
-        ),
-      );
-    } else {
-      // No changes - just generate initial migration getter
-      buffer.writeln(_generateMigrationsGetter(className, 1));
-      buffer.writeln(
-        _generateInitialMigration(
-          className,
-          entities,
-          junctionTables,
-          sqlDialect,
-        ),
-      );
+    // Generate migrations list from history
+    buffer.writeln(
+      _generateMigrationsGetterFromHistory(className, storedMigrations),
+    );
+
+    // Always generate initial migration (version 1)
+    buffer.writeln(
+      _generateInitialMigration(
+        className,
+        entities,
+        junctionTables,
+        sqlDialect,
+      ),
+    );
+
+    // Generate all stored diff migrations from history
+    for (final migration in storedMigrations) {
+      final version = migration['version'] as int;
+      if (version == 1) continue; // Skip initial migration
+
+      final changes =
+          (migration['changes'] as List?)
+              ?.map(
+                (c) => _SchemaChange(
+                  type: _ChangeType.values.firstWhere(
+                    (t) => t.name == c['type'],
+                    orElse: () => _ChangeType.addColumn,
+                  ),
+                  tableName: c['table'] as String? ?? '',
+                  columnName: c['column'] as String?,
+                  details: c['details'],
+                ),
+              )
+              .toList() ??
+          [];
+
+      if (changes.isNotEmpty) {
+        buffer.writeln(
+          _generateDiffMigration(
+            className,
+            changes,
+            version,
+            sqlDialect,
+          ),
+        );
+      }
     }
 
     // Generate migration extension
@@ -562,13 +691,28 @@ class MigrationGenerator extends GeneratorForAnnotation<Db> {
     return buffer.toString();
   }
 
-  String _generateMigrationsGetterWithDiff(String className, int version) {
+  String _generateMigrationsGetterFromHistory(
+    String className,
+    List<dynamic> migrations,
+  ) {
+    final versions = migrations.map((m) => m['version'] as int).toList()
+      ..sort();
+
+    final migrationInstances = versions
+        .map((v) {
+          if (v == 1) {
+            return '  _${className}InitialMigration(),';
+          } else {
+            return '  _${className}Migration$v(),';
+          }
+        })
+        .join('\n');
+
     return '''
 /// Generated migrations for $className
-/// Includes initial migration and schema diff migrations
+/// Migrations are loaded from stored history to preserve across rebuilds
 List<DatabaseMigration> get _${_toCamelCase(className)}GeneratedMigrations => [
-  _${className}InitialMigration(),
-  _${className}Migration$version(),
+$migrationInstances
 ];
 ''';
   }
@@ -636,15 +780,9 @@ class _${className}Migration$version extends DatabaseMigration {
           final sqlType = _toSQLTypeEnum(col['type'] as String);
           final nullable = col['nullable'] == true;
           final defaultValue = _getDefaultValueForType(sqlType, nullable);
-          if (nullable) {
-            buffer.writeln(
-              "    await addColumn(table: '${change.tableName}', column: '${change.columnName}', type: SQLType.${sqlType.name}.sqlType, nullable: true);",
-            );
-          } else {
-            buffer.writeln(
-              "    await addColumn(table: '${change.tableName}', column: '${change.columnName}', type: SQLType.${sqlType.name}.sqlType, nullable: false, defaultValue: '$defaultValue');",
-            );
-          }
+          buffer.writeln(
+            "    await addColumn(table: '${change.tableName}', column: '${change.columnName}', type: SQLType.${sqlType.name}.sqlType, nullable: $nullable, defaultValue: '$defaultValue');",
+          );
           break;
 
         case _ChangeType.dropColumn:
@@ -754,33 +892,6 @@ class _${className}Migration$version extends DatabaseMigration {
     buffer.writeln('}');
 
     return buffer.toString();
-  }
-
-  String _generateMigrationsGetter(String className, int migrationVersion) {
-    return '''
-/// Generated migrations for $className
-/// These are auto-generated based on the schema definition
-/// 
-/// Usage:
-/// ```dart
-/// await db.setup(
-///   migrations: db.generatedMigrations,
-/// );
-/// ```
-/// 
-/// Or combine with custom migrations:
-/// ```dart
-/// await db.setup(
-///   migrations: db.allMigrations([
-///     // Your custom migrations here
-///     MyCustomMigration(),
-///   ]),
-/// );
-/// ```
-List<DatabaseMigration> get _${_toCamelCase(className)}GeneratedMigrations => [
-  _${className}InitialMigration(),
-];
-''';
   }
 
   String _generateInitialMigration(
@@ -995,9 +1106,11 @@ extension ${className}Migrations on $className {
     return SQLType.fromName(sqlType);
   }
 
-  /// Get a sensible default value for a SQL type when adding NOT NULL column
+  /// Get a sensible default value for a SQL type when adding a column
+  /// For nullable columns, returns 'NULL'
+  /// For NOT NULL columns, returns a sensible default based on type
   String _getDefaultValueForType(SQLType sqlType, bool nullable) {
-    if (nullable) return '';
+    if (nullable) return 'NULL';
 
     switch (sqlType) {
       case SQLType.integer:
@@ -1016,7 +1129,7 @@ extension ${className}Migrations on $className {
       case SQLType.text:
       case SQLType.varchar:
       case SQLType.char:
-        return "''";
+        return "";
       case SQLType.timestamp:
       case SQLType.timestamptz:
         return 'CURRENT_TIMESTAMP';
@@ -1034,7 +1147,7 @@ extension ${className}Migrations on $className {
         return "gen_random_uuid()";
       case SQLType.bytea:
       case SQLType.blob:
-        return "''";
+        return "";
     }
   }
 
