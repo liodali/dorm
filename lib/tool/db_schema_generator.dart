@@ -26,6 +26,16 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     }
 
     final className = element.name;
+    final sqlDialectValue = annotation.peek('sqlDialect')?.objectValue;
+
+    // Determine SQL dialect
+    String sqlDialect = 'postgresql';
+    if (sqlDialectValue != null) {
+      final dialectName = sqlDialectValue.getField('_name')?.toStringValue();
+      if (dialectName != null) {
+        sqlDialect = dialectName;
+      }
+    }
 
     // Extract entity types from annotation
     final entitiesReader = annotation.peek('entities');
@@ -79,6 +89,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
               tableName,
               entityElements,
               entityToTableName,
+              sqlDialect,
             );
             manyToManyRelations.addAll(m2mRelations);
 
@@ -583,6 +594,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
     String ownerTableName,
     Map<String, ClassElement> entityElements,
     Map<String, String> entityToTableName,
+    String dialect,
   ) {
     final relations = <_ManyToManyInfo>[];
     final targetEntityPattern = RegExp(r'targetEntity:\s*(\w+)');
@@ -642,7 +654,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
             final extraColumnsMatch = extraColumnsPattern.firstMatch(source);
             if (extraColumnsMatch != null) {
               final columnsContent = extraColumnsMatch.group(1)!;
-              extraColumns.addAll(_parseExtraColumns(columnsContent));
+              extraColumns.addAll(_parseExtraColumns(columnsContent, dialect));
             }
 
             relations.add(
@@ -687,7 +699,10 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
   }
 
   /// Parse extra columns from annotation source
-  List<_ExtraColumnInfo> _parseExtraColumns(String columnsContent) {
+  List<_ExtraColumnInfo> _parseExtraColumns(
+    String columnsContent,
+    String dialect,
+  ) {
     final columns = <_ExtraColumnInfo>[];
 
     // Pattern to match JunctionColumn(...) entries
@@ -711,7 +726,7 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
         r'type:\s*JunctionColumnType\.(\w+)',
       ).firstMatch(content);
       final typeStr = typeMatch?.group(1) ?? 'text';
-      final sqlType = _junctionColumnTypeToSql(typeStr);
+      final sqlType = _junctionColumnTypeToSql(typeStr, dialect);
 
       // Extract nullable
       final nullableMatch = RegExp(
@@ -744,39 +759,61 @@ class DbSchemaGenerator extends GeneratorForAnnotation<Db> {
   }
 
   /// Convert JunctionColumnType enum value to SQL type
-  String _junctionColumnTypeToSql(String type) {
+  String _junctionColumnTypeToSql(String type, String dialect) {
+    String sqlType;
     switch (type) {
       case 'integer':
-        return 'INTEGER';
+        sqlType = 'INTEGER';
+        break;
       case 'bigint':
-        return 'BIGINT';
+        sqlType = 'BIGINT';
+        break;
       case 'text':
-        return 'TEXT';
+        sqlType = 'TEXT';
+        break;
       case 'varchar':
-        return 'VARCHAR(255)';
+        sqlType = 'VARCHAR(255)';
+        break;
       case 'boolean':
-        return 'BOOLEAN';
+        sqlType = 'BOOLEAN';
+        break;
       case 'real':
-        return 'REAL';
+        sqlType = 'REAL';
+        break;
       case 'doublePrecision':
-        return 'DOUBLE PRECISION';
+        sqlType = 'DOUBLE PRECISION';
+        break;
       case 'timestamp':
-        return 'TIMESTAMP';
+        sqlType = 'TIMESTAMP';
+        break;
       case 'timestamptz':
-        return 'TIMESTAMPTZ';
+        sqlType = 'TIMESTAMPTZ';
+        break;
       case 'date':
-        return 'DATE';
+        sqlType = 'DATE';
+        break;
       case 'time':
-        return 'TIME';
+        sqlType = 'TIME';
+        break;
       case 'json':
-        return 'JSON';
+        sqlType = 'JSON';
+        break;
       case 'jsonb':
-        return 'JSONB';
+        sqlType = 'JSONB';
+        break;
       case 'uuid':
-        return 'UUID';
+        sqlType = 'UUID';
+        break;
       default:
-        return 'TEXT';
+        sqlType = 'TEXT';
     }
+
+    // Convert JSON/JSONB to TEXT for SQLite
+    if (dialect == 'sqlite' && (sqlType == 'JSON' || sqlType == 'JSONB')) {
+      return 'TEXT';
+    }
+
+    return sqlType;
   }
 
   /// Deduplicate junction tables - keep only owning side definitions

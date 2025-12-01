@@ -180,6 +180,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
               tableName,
               entityElements,
               entityToTableName,
+              sqlDialect,
             );
             manyToManyRelations.addAll(m2mRelations);
 
@@ -321,21 +322,24 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
       final parts = <String>[];
       parts.add('  ${column.name}');
 
+      // Convert SQL type based on database dialect
+      final sqlType = _convertSqlTypeForDialect(column.sqlType, dialect);
+
       // Handle auto-increment for primary key
       if (column.isPrimaryKey) {
         switch (dialect) {
           case 'postgresql':
-            parts.add(column.sqlType == 'INTEGER' ? 'SERIAL' : 'BIGSERIAL');
+            parts.add(sqlType == 'INTEGER' ? 'SERIAL' : 'BIGSERIAL');
             parts.add('PRIMARY KEY');
           case 'mysql':
-            parts.add('${column.sqlType} AUTO_INCREMENT PRIMARY KEY');
+            parts.add('$sqlType AUTO_INCREMENT PRIMARY KEY');
           case 'sqlite':
             parts.add('INTEGER PRIMARY KEY AUTOINCREMENT');
           default:
-            parts.add('${column.sqlType} PRIMARY KEY');
+            parts.add('$sqlType PRIMARY KEY');
         }
       } else {
-        parts.add(column.sqlType);
+        parts.add(sqlType);
         if (!column.isNullable) {
           parts.add('NOT NULL');
         }
@@ -380,6 +384,17 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
       default:
         return '';
     }
+  }
+
+  /// Convert SQL type based on database dialect
+  /// JSON and JSONB are only supported in PostgreSQL, convert to TEXT for SQLite
+  String _convertSqlTypeForDialect(String sqlType, String dialect) {
+    if (dialect == 'sqlite') {
+      if (sqlType == 'JSON' || sqlType == 'JSONB') {
+        return 'TEXT';
+      }
+    }
+    return sqlType;
   }
 
   /// Generate CREATE TABLE SQL for a junction table
@@ -560,6 +575,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     String ownerTableName,
     Map<String, ClassElement> entityElements,
     Map<String, String> entityToTableName,
+    String dialect,
   ) {
     final relations = <_ManyToManyInfo>[];
     // Regex patterns for parsing annotations
@@ -627,7 +643,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
             final extraColumnsMatch = extraColumnsPattern.firstMatch(source);
             if (extraColumnsMatch != null) {
               final columnsContent = extraColumnsMatch.group(1)!;
-              extraColumns.addAll(_parseExtraColumns(columnsContent));
+              extraColumns.addAll(_parseExtraColumns(columnsContent, dialect));
             }
 
             relations.add(
@@ -673,7 +689,10 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
   }
 
   /// Parse extra columns from annotation source
-  List<_ExtraColumnInfo> _parseExtraColumns(String columnsContent) {
+  List<_ExtraColumnInfo> _parseExtraColumns(
+    String columnsContent,
+    String dialect,
+  ) {
     final columns = <_ExtraColumnInfo>[];
 
     // Pattern to match JunctionColumn(...) entries
@@ -697,7 +716,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
         r'type:\s*JunctionColumnType\.(\w+)',
       ).firstMatch(content);
       final typeStr = typeMatch?.group(1) ?? 'text';
-      final sqlType = _junctionColumnTypeToSql(typeStr);
+      final sqlType = _junctionColumnTypeToSql(typeStr, dialect);
 
       // Extract nullable
       final nullableMatch = RegExp(
@@ -730,39 +749,31 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
   }
 
   /// Convert JunctionColumnType enum value to SQL type
-  String _junctionColumnTypeToSql(String type) {
-    switch (type) {
-      case 'integer':
-        return 'INTEGER';
-      case 'bigint':
-        return 'BIGINT';
-      case 'text':
-        return 'TEXT';
-      case 'varchar':
-        return 'VARCHAR(255)';
-      case 'boolean':
-        return 'BOOLEAN';
-      case 'real':
-        return 'REAL';
-      case 'doublePrecision':
-        return 'DOUBLE PRECISION';
-      case 'timestamp':
-        return 'TIMESTAMP';
-      case 'timestamptz':
-        return 'TIMESTAMPTZ';
-      case 'date':
-        return 'DATE';
-      case 'time':
-        return 'TIME';
-      case 'json':
-        return 'JSON';
-      case 'jsonb':
-        return 'JSONB';
-      case 'uuid':
-        return 'UUID';
-      default:
-        return 'TEXT';
+  String _junctionColumnTypeToSql(String type, String dialect) {
+    String sqlType = switch (type) {
+      'integer' => 'INTEGER',
+      'bigint' => 'BIGINT',
+      'text' => 'TEXT',
+      'varchar' => 'VARCHAR(255)',
+      'boolean' => 'BOOLEAN',
+      'real' => 'REAL',
+      'doublePrecision' => 'DOUBLE PRECISION',
+      'timestamp' => 'TIMESTAMP',
+      'timestamptz' => 'TIMESTAMPTZ',
+      'date' => 'DATE',
+      'time' => 'TIME',
+      'json' => 'JSON',
+      'jsonb' => 'JSONB',
+      'uuid' => 'UUID',
+      _ => 'TEXT',
+    };
+
+    // Convert JSON/JSONB to TEXT for SQLite
+    if (dialect == 'sqlite' && (sqlType == 'JSON' || sqlType == 'JSONB')) {
+      return 'TEXT';
     }
+
+    return sqlType;
   }
 
   /// Validate ManyToMany relationships

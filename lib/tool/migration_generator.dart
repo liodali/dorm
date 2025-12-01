@@ -1145,8 +1145,8 @@ extension ${className}Migrations on $className {
         return "'{}'";
       case SQLType.uuid:
         return "gen_random_uuid()";
-      case SQLType.bytea:
       case SQLType.blob:
+      case SQLType.bytea:
         return "";
     }
   }

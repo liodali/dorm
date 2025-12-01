@@ -153,6 +153,30 @@ enum SQLType {
 
   static String toSql(String name) =>
       values.firstWhereOrNull((e) => e.name == name)?.sqlType ?? 'TEXT';
+
+  /// Convert SQL type based on database type
+  /// JSON and JSONB are only supported in PostgreSQL, convert to TEXT for SQLite
+  static String toSqlForDatabase(String name, DatabaseType dbType) {
+    final sqlType = toSql(name);
+    return _convertTypeForDatabase(sqlType, dbType);
+  }
+
+  /// Convert a SQL type string based on database type
+  /// JSON and JSONB are only supported in PostgreSQL, convert to TEXT for SQLite
+  static String convertTypeForDatabase(String sqlType, DatabaseType dbType) {
+    return _convertTypeForDatabase(sqlType, dbType);
+  }
+
+  static String _convertTypeForDatabase(String sqlType, DatabaseType dbType) {
+    // For SQLite, convert JSON/JSONB to TEXT
+    if (dbType == DatabaseType.sqlite) {
+      if (sqlType == 'JSON' || sqlType == 'JSONB') {
+        return 'TEXT';
+      }
+    }
+
+    return sqlType;
+  }
 }
 
 // ============================================================================
