@@ -1,4 +1,4 @@
-import 'package:dorm/src/repository.dart';
+import 'package:dartorm/src/repository.dart';
 
 /// EntityFramework-style LINQ query builder
 class QueryBuilder<T> {

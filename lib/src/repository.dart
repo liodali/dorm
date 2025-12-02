@@ -1,7 +1,7 @@
-import 'package:dorm/src/query_builder.dart';
-import 'package:dorm/src/raw_query.dart';
-import 'package:dorm/src/database/database_connection.dart';
-import 'package:dorm/src/stored_procedure.dart';
+import 'package:dartorm/src/query_builder.dart';
+import 'package:dartorm/src/raw_query.dart';
+import 'package:dartorm/src/database/database_connection.dart';
+import 'package:dartorm/src/stored_procedure.dart';
 
 abstract class Repository<T> {
   final String tableName;

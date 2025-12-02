@@ -10,7 +10,7 @@ environment:
 # Add regular dependencies here.
 dependencies:
   path: ^1.9.0
-  dorm: 
+  dartorm: 
     path: ../../
 
 dev_dependencies:

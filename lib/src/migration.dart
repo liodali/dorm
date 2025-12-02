@@ -1,5 +1,5 @@
-import 'package:dorm/src/database/database_connection.dart';
-import 'package:dorm/src/schema.dart';
+import 'package:dartorm/src/database/database_connection.dart';
+import 'package:dartorm/src/schema.dart';
 
 /// Callback type for manual migrations
 typedef MigrationCallback =

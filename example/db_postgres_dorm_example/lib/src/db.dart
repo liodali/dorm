@@ -1,7 +1,7 @@
 import 'package:db_postgres_dorm_example/src/models/blog_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/post_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/product_entity.dart';
-import 'package:dorm/dorm.dart';
+import 'package:dartorm/dorm.dart';
 
 import 'models/user_entity.dart';
 

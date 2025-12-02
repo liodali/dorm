@@ -56,7 +56,7 @@ Add DORM to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dorm: ^0.2.0
+  dartorm: ^0.2.0
   postgres: ^3.1.0 # For PostgreSQL
   sqlite3: ^3.0.1 # For SQLite
 
@@ -72,7 +72,7 @@ dev_dependencies:
 
 ```dart
 // lib/src/models/user_entity.dart
-import 'package:dorm/dorm.dart';
+import 'package:dartorm/dorm.dart';
 
 part 'user_entity.orm.g.dart';
 
@@ -92,7 +92,7 @@ class UserEntity {
 
 ```dart
 // lib/src/db.dart
-import 'package:dorm/dorm.dart';
+import 'package:dartorm/dorm.dart';
 import 'models/user_entity.dart';
 
 part 'db.db.g.dart';

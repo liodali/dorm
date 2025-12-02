@@ -4,7 +4,7 @@ import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
 import 'package:crypto/crypto.dart';
-import 'package:dorm/src/annotation.dart';
+import 'package:dartorm/src/annotation.dart';
 import 'package:source_gen/source_gen.dart';
 
 /// Generator for @Db annotation

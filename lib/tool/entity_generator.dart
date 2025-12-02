@@ -2,8 +2,8 @@ import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
 import 'package:collection/collection.dart';
-import 'package:dorm/src/annotation.dart';
-import 'package:dorm/src/database/database_connection.dart';
+import 'package:dartorm/src/annotation.dart';
+import 'package:dartorm/src/database/database_connection.dart';
 import 'package:source_gen/source_gen.dart';
 
 class EntityGenerator extends GeneratorForAnnotation<Entity> {

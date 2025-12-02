@@ -2,8 +2,8 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:build/build.dart';
-import 'package:dorm/src/annotation.dart';
-import 'package:dorm/src/database/database_connection.dart';
+import 'package:dartorm/src/annotation.dart';
+import 'package:dartorm/src/database/database_connection.dart';
 import 'package:source_gen/source_gen.dart';
 
 /// Schema difference detector and migration generator

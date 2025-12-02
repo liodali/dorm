@@ -1,5 +1,5 @@
 import 'package:db_postgres_dorm_example/src/models/user_entity.dart';
-import 'package:dorm/dorm.dart';
+import 'package:dartorm/dorm.dart';
 
 part 'blog_entity.orm.g.dart';
 
