@@ -9,10 +9,7 @@ issue_tracker: https://github.com/liodali/dorm/issues
 topics:
   - orm
   - database
-  - sqlite
-  - postgres
   - dart
-  - mysql
   - orm-framework
 
 environment:
