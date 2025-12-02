@@ -116,7 +116,7 @@ class MySQLConnection implements DatabaseConnection {
   @override
   Future<DatabaseTransaction> beginTransaction() async {
     await _ensureOpen();
-    return MySQLTransaction(_connection);
+    return MySQLTransaction(/*_connection*/);
   }
 
   @override
@@ -144,10 +144,10 @@ class MySQLConnection implements DatabaseConnection {
 
 /// MySQL transaction implementation
 class MySQLTransaction implements DatabaseTransaction {
-  final dynamic _connection;
+  // final dynamic _connection;
   bool _isActive = true;
 
-  MySQLTransaction(this._connection);
+  MySQLTransaction(/*this._connection*/);
 
   @override
   Future<List<Map<String, dynamic>>> query(

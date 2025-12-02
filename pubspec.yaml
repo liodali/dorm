@@ -16,13 +16,13 @@ topics:
   - orm-framework
 
 environment:
-  sdk: ^3.10.0
+  sdk: ^3.10.1
 
 # Add regular dependencies here.
 dependencies:
   # path: ^1.9.0
   postgres: ^3.1.0
-  sqlite3: ^3.0.1
+  sqlite3: ^3.1.1
   analyzer: ^9.0.0
   source_gen: ^4.1.1
   dart_style: ^3.1.3
