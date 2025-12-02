@@ -5,6 +5,7 @@
 - ⏳ Integrate YAML file for connection configuration and environment variables
 - ⏳ Add tests for migration and schema validation
 - ⏳ Add MySQL package support
+- ⏳ Add DTO generator
 
 ## 0.2.0
 

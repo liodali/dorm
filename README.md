@@ -56,14 +56,12 @@ Add DORM to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dorm:
-    git:
-      url: https://github.com/liodali/dorm.git
+  dorm: ^0.2.0
   postgres: ^3.1.0 # For PostgreSQL
   sqlite3: ^3.0.1 # For SQLite
 
 dev_dependencies:
-  build_runner: ^2.4.0
+  build_runner: ^2.10.3
 ```
 
 ---
