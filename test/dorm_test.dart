@@ -1,4 +1,4 @@
-import 'package:dartorm/dorm.dart';
+import 'package:dormql/dorm.dart';
 import 'package:test/test.dart';
 
 void main() {

@@ -1,5 +1,5 @@
-import 'package:dartorm/src/database/database_connection.dart';
-import 'package:dartorm/src/schema.dart';
+import 'package:dormql/src/database/database_connection.dart';
+import 'package:dormql/src/schema.dart';
 
 /// Callback type for manual migrations
 typedef MigrationCallback =

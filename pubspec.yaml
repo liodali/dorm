@@ -1,4 +1,4 @@
-name: dartorm
+name: dormql
 description: Dart Object-Relational Mapping
 type: library
 version: 0.2.0

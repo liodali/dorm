@@ -1,4 +1,4 @@
-import 'package:dartorm/dorm.dart';
+import 'package:dormql/dorm.dart';
 
 /// Example entity class
 @Entity(tableName: 'users', dbType: DatabaseType.postgresql)

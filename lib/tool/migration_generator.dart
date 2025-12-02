@@ -4,8 +4,8 @@ import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
 import 'package:crypto/crypto.dart';
-import 'package:dartorm/src/annotation.dart';
-import 'package:dartorm/src/schema.dart' show SQLType;
+import 'package:dormql/src/annotation.dart';
+import 'package:dormql/src/schema.dart' show SQLType;
 import 'package:source_gen/source_gen.dart';
 
 /// Generator for database migrations

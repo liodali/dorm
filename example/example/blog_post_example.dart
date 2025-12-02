@@ -1,4 +1,4 @@
-import 'package:dartorm/dorm.dart';
+import 'package:dormql/dorm.dart';
 
 /// Blog entity with OneToMany relationship to Posts
 @Entity(tableName: 'blogs', dbType: DatabaseType.postgresql)

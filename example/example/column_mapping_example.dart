@@ -1,4 +1,4 @@
-import 'package:dartorm/dorm.dart';
+import 'package:dormql/dorm.dart';
 
 /// Example demonstrating column name mapping
 ///
