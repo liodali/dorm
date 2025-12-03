@@ -9,6 +9,9 @@ environment:
 # Add regular dependencies here.
 dependencies:
   # path: ^1.9.0
+  analysis_server_plugin: ^0.3.4
+  analyzer_plugin: ^0.13.11
+  analyzer: ^9.0.0
 
 dev_dependencies:
   lints: ^6.0.0
