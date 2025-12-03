@@ -1,15 +1,24 @@
-import '../database/database_connection.dart' show DatabaseType;
-
 /// Entity annotation for marking a class as a database entity
+///
+/// The database type is determined from the @Db annotation's DbConfig.
+/// Do not specify dbType here - it will be inferred from the database configuration.
+///
+/// Example:
+/// ```dart
+/// @Entity(tableName: 'users')
+/// class UserEntity {
+///   @Id()
+///   int id;
+///   String name;
+/// }
+/// ```
 class Entity {
   final String? tableName;
   final String? description;
-  final DatabaseType dbType;
 
   const Entity({
     this.tableName,
     this.description,
-    this.dbType = DatabaseType.postgresql,
   });
 }
 
@@ -53,24 +62,38 @@ class Column {
 /// ```
 class Id {
   final bool autoIncrement;
-  final String? strategy; // SERIAL, UUID, IDENTITY, etc.
+  final IDStrategy? strategy; // SERIAL, UUID, IDENTITY, etc.
 
   const Id.postgres({
-    this.autoIncrement = true,
-    this.strategy = 'SERIAL',
-  });
+    this.strategy = IDStrategy.serial,
+  }) : autoIncrement = true;
   const Id.mysql({
-    this.autoIncrement = true,
-    this.strategy = 'AUTO_INCREMENT',
-  });
+    this.strategy = IDStrategy.autoIncrement,
+  }) : autoIncrement = true;
   const Id.sqlite({
-    this.autoIncrement = true,
-    this.strategy = 'AUTOINCREMENT',
-  });
+    this.strategy = IDStrategy.autoIncrementSqlite,
+  }) : autoIncrement = true;
+  const Id.uuid({
+    this.strategy = IDStrategy.uuid,
+  }) : autoIncrement = false;
   const Id({
     this.autoIncrement = true,
-    this.strategy = 'AUTOINCREMENT',
-  });
+    this.strategy = IDStrategy.autoIncrement,
+  }) : assert(
+         autoIncrement && strategy != IDStrategy.uuid,
+         'autoIncrement is true but strategy is uuid,should use another strategy',
+       );
+}
+
+enum IDStrategy {
+  serial(label: 'SERIAL'),
+  autoIncrement(label: 'AUTO_INCREMENT'),
+  autoIncrementSqlite(label: 'AUTOINCREMENT'),
+  uuid(label: 'UUID')
+  ;
+
+  const IDStrategy({required this.label});
+  final String label;
 }
 
 /// Index annotation for creating database indexes
