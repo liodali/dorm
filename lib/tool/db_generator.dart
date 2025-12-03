@@ -5,7 +5,9 @@ import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dormql/src/annotation.dart';
+import 'package:dormql/src/database/database_connection.dart';
 import 'package:source_gen/source_gen.dart';
+import 'id_strategy_helper.dart'; // For ID strategy SQL generation
 
 /// Generator for @Db annotation
 /// Generates a database class with repository extensions
@@ -327,16 +329,37 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
 
       // Handle auto-increment for primary key
       if (column.isPrimaryKey) {
-        switch (dialect) {
-          case 'postgresql':
-            parts.add(sqlType == 'INTEGER' ? 'SERIAL' : 'BIGSERIAL');
-            parts.add('PRIMARY KEY');
-          case 'mysql':
-            parts.add('$sqlType AUTO_INCREMENT PRIMARY KEY');
-          case 'sqlite':
-            parts.add('INTEGER PRIMARY KEY AUTOINCREMENT');
-          default:
-            parts.add('$sqlType PRIMARY KEY');
+        // Extract ID strategy if available
+        final idStrategy = column.idAnnotation != null
+            ? IdStrategyHelper.extractIdStrategy(column.idAnnotation)
+            : null;
+
+        if (idStrategy != null) {
+          // Use strategy-based SQL generation
+          final idSql = sqlType == 'INTEGER'
+              ? IdStrategyHelper.getIdStrategySQL(
+                  idStrategy,
+                  _dialectToDatabaseType(dialect),
+                )
+              : IdStrategyHelper.getBigIdStrategySQL(
+                  idStrategy,
+                  _dialectToDatabaseType(dialect),
+                );
+          parts.add(idSql);
+          parts.add('PRIMARY KEY');
+        } else {
+          // Fallback to default behavior
+          switch (dialect) {
+            case 'postgresql':
+              parts.add(sqlType == 'INTEGER' ? 'SERIAL' : 'BIGSERIAL');
+              parts.add('PRIMARY KEY');
+            case 'mysql':
+              parts.add('$sqlType AUTO_INCREMENT PRIMARY KEY');
+            case 'sqlite':
+              parts.add('INTEGER PRIMARY KEY AUTOINCREMENT');
+            default:
+              parts.add('$sqlType PRIMARY KEY');
+          }
         }
       } else {
         parts.add(sqlType);
@@ -367,6 +390,20 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
     buffer.writeln(';');
 
     return buffer.toString();
+  }
+
+  /// Convert SQL dialect string to DatabaseType enum
+  DatabaseType _dialectToDatabaseType(String dialect) {
+    switch (dialect) {
+      case 'postgresql':
+        return DatabaseType.postgresql;
+      case 'mysql':
+        return DatabaseType.mysql;
+      case 'sqlite':
+        return DatabaseType.sqlite;
+      default:
+        return DatabaseType.postgresql;
+    }
   }
 
   /// Convert RelationAction enum name to SQL clause
@@ -976,6 +1013,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
       bool isRelationship = false;
       bool isPrimaryKey = false;
       String columnName = _toSnakeCase(field.name!);
+      ElementAnnotation? idAnnotation;
 
       for (final meta in field.metadata.annotations) {
         final annotationName = meta.element?.enclosingElement?.name;
@@ -991,6 +1029,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
         }
         if (annotationName == 'Id') {
           isPrimaryKey = true;
+          idAnnotation = meta;
         }
         if (annotationName == 'Column') {
           final source = meta.toSource();
@@ -1017,6 +1056,7 @@ class DbGenerator extends GeneratorForAnnotation<Db> {
           sqlType: sqlType,
           isNullable: isNullable,
           isPrimaryKey: isPrimaryKey,
+          idAnnotation: idAnnotation,
         ),
       );
     }
@@ -1564,6 +1604,7 @@ class _ColumnInfo {
   final String sqlType;
   final bool isNullable;
   final bool isPrimaryKey;
+  final ElementAnnotation? idAnnotation;
 
   _ColumnInfo({
     required this.name,
@@ -1571,6 +1612,7 @@ class _ColumnInfo {
     required this.sqlType,
     required this.isNullable,
     required this.isPrimaryKey,
+    this.idAnnotation,
   });
 }
 

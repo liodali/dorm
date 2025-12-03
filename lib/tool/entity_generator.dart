@@ -1,4 +1,6 @@
 import 'package:analyzer/dart/element/element.dart';
+import 'package:analyzer/dart/element/nullability_suffix.dart'
+    show NullabilitySuffix;
 import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
 import 'package:collection/collection.dart';
@@ -6,6 +8,7 @@ import 'package:dormql/src/annotation.dart';
 import 'package:dormql/src/database/database_connection.dart';
 import 'package:source_gen/source_gen.dart';
 import 'db_type_helper.dart';
+import 'id_strategy_helper.dart'; // For ID strategy validation
 
 class EntityGenerator extends GeneratorForAnnotation<Entity> {
   @override
@@ -56,6 +59,49 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
           'annotation': oneToOne ?? oneToMany ?? manyToOne ?? manyToMany,
         });
         continue;
+      }
+
+      // Validate @Id and @Column(primaryKey: true) conflict
+      final conflictError = IdStrategyHelper.validateIdAndPrimaryKeyConflict(
+        idAnnotation,
+        columnAnnotation,
+      );
+      if (conflictError != null) {
+        throw InvalidGenerationSourceError(
+          conflictError,
+          element: field,
+        );
+      }
+
+      // Validate ID strategy if @Id is present
+      if (idAnnotation != null) {
+        final strategy = IdStrategyHelper.extractIdStrategy(idAnnotation);
+        if (strategy != null) {
+          final validationError = IdStrategyHelper.validateIdStrategyForType(
+            strategy,
+            field.type,
+          );
+          if (validationError != null) {
+            throw InvalidGenerationSourceError(
+              validationError,
+              element: field,
+            );
+          }
+        }
+
+        // Validate nullable ID field
+        final isNullable =
+            field.type.nullabilitySuffix == NullabilitySuffix.question;
+        final nullabilityError = IdStrategyHelper.validateIdNullability(
+          idAnnotation,
+          isNullable,
+        );
+        if (nullabilityError != null) {
+          throw InvalidGenerationSourceError(
+            nullabilityError,
+            element: field,
+          );
+        }
       }
 
       // Process all fields that are not relationships or ignored

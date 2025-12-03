@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:dormql/src/annotation.dart';
 import 'package:dormql/src/schema.dart' show SQLType;
 import 'package:source_gen/source_gen.dart';
+import 'id_strategy_helper.dart';
 
 /// Generator for database migrations
 /// Generates migrations in .migration.g.dart as part of the database file
@@ -1106,6 +1107,20 @@ extension ${className}Migrations on $className {
     return SQLType.fromName(sqlType);
   }
 
+  /// Map ID strategy to SQL type string
+  String _idStrategyToSqlType(IDStrategy strategy, String dartSqlType) {
+    switch (strategy) {
+      case IDStrategy.serial:
+        return 'SERIAL';
+      case IDStrategy.autoIncrement:
+        return dartSqlType == 'INTEGER' ? 'SERIAL' : 'BIGSERIAL';
+      case IDStrategy.autoIncrementSqlite:
+        return 'AUTOINCREMENT';
+      case IDStrategy.uuid:
+        return 'UUID';
+    }
+  }
+
   /// Get a sensible default value for a SQL type when adding a column
   /// For nullable columns, returns 'NULL'
   /// For NOT NULL columns, returns a sensible default based on type
@@ -1200,6 +1215,7 @@ extension ${className}Migrations on $className {
       bool isRelationship = false;
       bool isPrimaryKey = false;
       String columnName = _toSnakeCase(field.name!);
+      ElementAnnotation? idAnnotation;
 
       for (final meta in field.metadata.annotations) {
         final annotationName = meta.element?.enclosingElement?.name;
@@ -1215,6 +1231,7 @@ extension ${className}Migrations on $className {
         }
         if (annotationName == 'Id') {
           isPrimaryKey = true;
+          idAnnotation = meta;
         }
         if (annotationName == 'Column') {
           final source = meta.toSource();
@@ -1229,10 +1246,19 @@ extension ${className}Migrations on $className {
 
       if (hasIgnore || isRelationship) continue;
 
-      final sqlType = _getDartToSqlType(field.type);
+      var sqlType = _getDartToSqlType(field.type);
       final isNullable = field.type.nullabilitySuffix.toString().contains(
         'question',
       );
+
+      // If this is a primary key with ID strategy, use strategy-based SQL type
+      if (isPrimaryKey && idAnnotation != null) {
+        final idStrategy = IdStrategyHelper.extractIdStrategy(idAnnotation);
+        if (idStrategy != null) {
+          // Map ID strategy to SQL type string
+          sqlType = _idStrategyToSqlType(idStrategy, sqlType);
+        }
+      }
 
       columns.add(
         _ColumnInfo(
@@ -1241,6 +1267,7 @@ extension ${className}Migrations on $className {
           sqlType: sqlType,
           isNullable: isNullable,
           isPrimaryKey: isPrimaryKey,
+          idAnnotation: idAnnotation,
         ),
       );
     }
@@ -1576,6 +1603,7 @@ class _ColumnInfo {
   final String sqlType;
   final bool isNullable;
   final bool isPrimaryKey;
+  final ElementAnnotation? idAnnotation;
 
   _ColumnInfo({
     required this.name,
@@ -1583,6 +1611,7 @@ class _ColumnInfo {
     required this.sqlType,
     required this.isNullable,
     required this.isPrimaryKey,
+    this.idAnnotation,
   });
 }
 
