@@ -76,10 +76,10 @@ import 'package:dormql/dorm.dart';
 
 part 'user_entity.orm.g.dart';
 
-@Entity(tableName: 'users', dbType: DatabaseType.postgresql)
+@Entity(tableName: 'users')
 class UserEntity {
-  @Id()
-  int? id;
+  @Id.postgres()  // Use database-specific ID strategy
+  int? id;  // ID must be nullable for auto-generated values
 
   String name;
   String email;
@@ -87,6 +87,8 @@ class UserEntity {
   UserEntity({this.id, required this.name, required this.email});
 }
 ```
+
+**Note:** The database type is now determined from the `@Db` annotation's `DbConfig`, not from the entity. Use `@Id.postgres()`, `@Id.mysql()`, `@Id.sqlite()`, or `@Id.uuid()` for database-specific ID strategies.
 
 ### 2. Define Your Database
 
@@ -167,10 +169,11 @@ Marks a class as a database entity.
 ```dart
 @Entity(
   tableName: 'users',           // Table name (optional, defaults to snake_case of class name)
-  dbType: DatabaseType.postgresql,  // Database type
 )
 class UserEntity { ... }
 ```
+
+**Note:** Database type is now determined from the `@Db` annotation's `DbConfig`. Use `@Id` with database-specific strategies (`@Id.postgres()`, `@Id.mysql()`, etc.) to control ID generation per database.
 
 ### `@Db`
 
@@ -223,11 +226,150 @@ DbConfig.sqlite(database: '/path/to/db.sqlite')
 
 ### `@Id`
 
-Marks a field as the primary key.
+Marks a field as the primary key with optional ID strategy configuration.
+
+#### Basic Usage
 
 ```dart
 @Id()
 int? id;
+```
+
+#### ID Strategies
+
+The `@Id` annotation supports different ID generation strategies via the `IDStrategy` enum. Each strategy is optimized for specific database types and field types.
+
+**Strategy Types:**
+
+| Strategy         | Type             | Databases         | Description                        |
+| ---------------- | ---------------- | ----------------- | ---------------------------------- |
+| `SERIAL`         | `int` / `BigInt` | PostgreSQL        | Auto-incrementing integer (SERIAL) |
+| `AUTO_INCREMENT` | `int` / `BigInt` | MySQL, PostgreSQL | Auto-incrementing integer          |
+| `AUTOINCREMENT`  | `int` / `BigInt` | SQLite            | Auto-incrementing integer          |
+| `UUID`           | `String`         | All               | UUID-based primary key             |
+
+#### Named Constructors (Database-Specific)
+
+```dart
+// PostgreSQL - uses SERIAL
+@Id.postgres()
+int id;
+
+// MySQL - uses AUTO_INCREMENT
+@Id.mysql()
+int id;
+
+// SQLite - uses AUTOINCREMENT
+@Id.sqlite()
+int id;
+
+// UUID strategy - works with all databases
+@Id.uuid()
+String id;
+```
+
+#### Default Constructor with Strategy Parameter
+
+```dart
+@Id(strategy: IDStrategy.serial)
+int id;
+
+@Id(strategy: IDStrategy.uuid)
+String id;
+```
+
+#### Type Restrictions
+
+The generator enforces type safety at build time:
+
+- **UUID strategy**: Only works with `String` type
+
+  ```dart
+  @Id.uuid()
+  String? id;  // ✓ Valid (nullable)
+
+  @Id.uuid()
+  int id;  // ✗ Build error: UUID strategy can only be used with String type
+  ```
+
+- **AutoIncrement strategies**: Only work with `int` or `BigInt` types
+
+  ```dart
+  @Id.postgres()
+  int? id;  // ✓ Valid (nullable)
+
+  @Id.postgres()
+  String id;  // ✗ Build error: AutoIncrement strategy can only be used with int or BigInt
+  ```
+
+#### Nullability Requirements
+
+ID fields **must be nullable** by default, unless you explicitly set `autoIncrement: false` and use a non-UUID strategy:
+
+```dart
+// ✓ Valid - nullable ID (recommended for auto-generated IDs)
+@Id.postgres()
+int? id;
+
+// ✓ Valid - nullable UUID
+@Id.uuid()
+String? id;
+
+// ✓ Valid - non-nullable ID with manual assignment (autoIncrement: false, non-UUID)
+@Id(autoIncrement: false, strategy: IDStrategy.serial)
+int id;  // Only allowed when autoIncrement is false
+
+// ✗ Build error - non-nullable with auto-generated ID
+@Id.postgres()
+int id;  // Error: ID field must be nullable unless autoIncrement is false
+
+// ✗ Build error - non-nullable UUID
+@Id.uuid()
+String id;  // Error: ID field must be nullable
+```
+
+**Rationale:** Auto-generated IDs (auto-increment, UUID) are assigned by the database after insertion, so the field must be nullable to represent the "not yet assigned" state before insertion.
+
+#### Database-Specific SQL Generation
+
+The generator automatically produces the correct SQL for each database:
+
+**PostgreSQL:**
+
+```sql
+id SERIAL PRIMARY KEY              -- int with SERIAL
+id BIGSERIAL PRIMARY KEY           -- BigInt with SERIAL
+id UUID DEFAULT gen_random_uuid()  -- String with UUID
+```
+
+**MySQL:**
+
+```sql
+id INT AUTO_INCREMENT PRIMARY KEY       -- int with AUTO_INCREMENT
+id BIGINT AUTO_INCREMENT PRIMARY KEY    -- BigInt with AUTO_INCREMENT
+id CHAR(36) PRIMARY KEY                 -- String with UUID
+```
+
+**SQLite:**
+
+```sql
+id INTEGER PRIMARY KEY AUTOINCREMENT  -- int with AUTOINCREMENT
+id TEXT PRIMARY KEY                   -- String with UUID
+```
+
+#### Complete Example
+
+```dart
+@Entity(tableName: 'users')
+class UserEntity {
+  @Id.postgres()  // or @Id.mysql(), @Id.sqlite(), @Id.uuid()
+  int id;
+
+  String name;
+  String email;
+
+  UserEntity({required this.id, required this.name, required this.email});
+}
 ```
 
 ### `@Column`
@@ -263,6 +405,65 @@ class OrderItemEntity {
 ```
 
 **Validation:** The generator will fail if any column in `columns` does not exist as a field in the entity.
+
+**Note:** Cannot use both `@Id` and `@PrimaryKey` on the same entity. Use `@Id` for single-field primary keys and `@PrimaryKey` for composite keys.
+
+#### ID Strategy Validation
+
+The generator enforces type safety for ID strategies at build time:
+
+**Valid Configurations:**
+
+```dart
+// ✓ UUID with String (nullable)
+@Id.uuid()
+String? id;
+
+// ✓ AutoIncrement with int (nullable)
+@Id.postgres()
+int? id;
+
+// ✓ AutoIncrement with BigInt (nullable)
+@Id.mysql()
+BigInt? id;
+
+// ✓ Non-nullable ID with manual assignment
+@Id(autoIncrement: false, strategy: IDStrategy.serial)
+int id;
+```
+
+**Invalid Configurations (Build Errors):**
+
+```dart
+// ✗ UUID with int - Build error
+@Id.uuid()
+int? id;  // Error: UUID strategy can only be used with String type
+
+// ✗ AutoIncrement with String - Build error
+@Id.postgres()
+String? id;  // Error: AutoIncrement strategy can only be used with int or BigInt
+
+// ✗ Non-nullable with auto-generated ID - Build error
+@Id.postgres()
+int id;  // Error: ID field must be nullable unless autoIncrement is false
+
+// ✗ Non-nullable UUID - Build error
+@Id.uuid()
+String id;  // Error: ID field must be nullable
+
+// ✗ Both @Id and @Column(primaryKey: true) - Build error
+@Id()
+@Column(primaryKey: true)
+int? id;  // Error: Cannot use both @Id and @Column(primaryKey: true)
+
+// ✗ Both @Id and @PrimaryKey - Build error
+@Entity()
+@PrimaryKey(columns: ['id'])
+class User {
+  @Id()
+  int? id;  // Error: Cannot use both @Id and @PrimaryKey
+}
+```
 
 ### `@Unique`
 
