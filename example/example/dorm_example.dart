@@ -1,7 +1,7 @@
 import 'package:dormql/dorm.dart';
 
 /// Example entity class
-@Entity(tableName: 'users', dbType: DatabaseType.postgresql)
+@Entity(tableName: 'users')
 class User {
   @Id(autoIncrement: true)
   final int? id;

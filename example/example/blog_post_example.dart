@@ -1,7 +1,7 @@
 import 'package:dormql/dorm.dart';
 
 /// Blog entity with OneToMany relationship to Posts
-@Entity(tableName: 'blogs', dbType: DatabaseType.postgresql)
+@Entity(tableName: 'blogs')
 class Blog {
   @Id(autoIncrement: true)
   final int? id;
@@ -28,7 +28,7 @@ class Blog {
 }
 
 /// Post entity with ManyToOne relationship to Blog
-@Entity(tableName: 'posts', dbType: DatabaseType.postgresql)
+@Entity(tableName: 'posts')
 class Post {
   @Id(autoIncrement: true)
   final int? id;

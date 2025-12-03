@@ -7,7 +7,7 @@ import 'package:dormql/dorm.dart';
 /// 2. Otherwise, convert camelCase field names to snake_case
 /// 3. Field names already in snake_case remain unchanged
 
-@Entity(tableName: 'users', dbType: DatabaseType.postgresql)
+@Entity(tableName: 'users')
 class User {
   // Primary key - auto-converted to 'id'
   @Id(autoIncrement: true)
@@ -107,7 +107,7 @@ class User {
 /// }
 /// ```
 
-@Entity(tableName: 'products', dbType: DatabaseType.postgresql)
+@Entity(tableName: 'products')
 class Product {
   @Id(autoIncrement: true)
   final int? id;
@@ -150,7 +150,7 @@ class Product {
   });
 }
 
-@Entity(tableName: 'categories', dbType: DatabaseType.postgresql)
+@Entity(tableName: 'categories')
 class Category {
   @Id(autoIncrement: true)
   final int? id;

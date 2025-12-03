@@ -7,7 +7,6 @@ part 'user_entity.orm.g.dart';
 
 @Entity(
   tableName: 'users',
-  dbType: DatabaseType.postgresql,
 )
 class UserEntity {
   @Id()

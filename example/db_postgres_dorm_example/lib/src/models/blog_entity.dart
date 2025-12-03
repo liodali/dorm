@@ -3,7 +3,7 @@ import 'package:dormql/dorm.dart';
 
 part 'blog_entity.orm.g.dart';
 
-@Entity(tableName: 'blogs', dbType: DatabaseType.postgresql)
+@Entity(tableName: 'blogs')
 class BlogEntity {
   @Id()
   int? id;
