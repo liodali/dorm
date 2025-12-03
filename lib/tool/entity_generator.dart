@@ -5,6 +5,7 @@ import 'package:collection/collection.dart';
 import 'package:dormql/src/annotation.dart';
 import 'package:dormql/src/database/database_connection.dart';
 import 'package:source_gen/source_gen.dart';
+import 'db_type_helper.dart';
 
 class EntityGenerator extends GeneratorForAnnotation<Entity> {
   @override
@@ -24,7 +25,7 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
     final tableName =
         annotation.peek('tableName')?.stringValue ??
         _tableNameFromClass(className!);
-    final dbType = _getDatabaseType(annotation);
+    final dbType = DbTypeHelper.extractDbTypeFromElement(element);
 
     // Validate that @Id and @PrimaryKey are not used together
     _validatePrimaryKeyAnnotations(element);
@@ -315,17 +316,6 @@ $findByIdWithRelationMethods
     }
     // Convert camelCase to snake_case if no custom name specified
     return _snakeCase(field.displayName);
-  }
-
-  DatabaseType _getDatabaseType(ConstantReader annotation) {
-    final dbTypeValue = annotation.peek('dbType')?.objectValue;
-    if (dbTypeValue != null) {
-      final index = dbTypeValue.getField('index')?.toIntValue();
-      if (index != null && index < DatabaseType.values.length) {
-        return DatabaseType.values[index];
-      }
-    }
-    return DatabaseType.postgresql;
   }
 
   bool _isPrimaryKey(ElementAnnotation annotation) {

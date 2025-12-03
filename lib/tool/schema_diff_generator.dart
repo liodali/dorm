@@ -5,6 +5,7 @@ import 'package:build/build.dart';
 import 'package:dormql/src/annotation.dart';
 import 'package:dormql/src/database/database_connection.dart';
 import 'package:source_gen/source_gen.dart';
+import 'db_type_helper.dart';
 
 /// Schema difference detector and migration generator
 class SchemaDiffGenerator extends GeneratorForAnnotation<Entity> {
@@ -21,7 +22,7 @@ class SchemaDiffGenerator extends GeneratorForAnnotation<Entity> {
     final className = element.name;
     final tableName =
         annotation.peek('tableName')?.stringValue ?? _toSnakeCase(className!);
-    final dbType = _getDatabaseType(annotation);
+    final dbType = DbTypeHelper.extractDbTypeFromElement(element);
 
     // Get the package root directory from the input path
     final inputPath = buildStep.inputId.path;
@@ -39,17 +40,6 @@ class SchemaDiffGenerator extends GeneratorForAnnotation<Entity> {
     );
 
     return migrationCode ?? '';
-  }
-
-  DatabaseType _getDatabaseType(ConstantReader annotation) {
-    final dbTypeValue = annotation.peek('dbType')?.objectValue;
-    if (dbTypeValue != null) {
-      final index = dbTypeValue.getField('index')?.toIntValue();
-      if (index != null && index < DatabaseType.values.length) {
-        return DatabaseType.values[index];
-      }
-    }
-    return DatabaseType.postgresql;
   }
 
   String _toSnakeCase(String text) {
