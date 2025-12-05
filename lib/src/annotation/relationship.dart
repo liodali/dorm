@@ -98,14 +98,21 @@ class OneToOne {
 ///
 /// Defines a one-to-many relationship between entities.
 /// This is the owning side - a FK column will be created in the target entity's table.
-/// The FK column name is automatically derived as {ownerEntity}_id (snake_case).
+/// The FK column name is automatically derived as {ownerTableName}_id (singular, snake_case).
+/// The target table name is automatically resolved from the target entity's @Entity annotation.
 ///
 /// Example:
 /// ```dart
-/// // In UserEntity - owns the relationship
-/// // Automatically creates user_id FK column in posts table
+/// // In UserEntity (tableName: 'users') - owns the relationship
+/// // Automatically creates user_id FK column in posts table (resolved from PostEntity's @Entity)
 /// @OneToMany(targetEntity: PostEntity)
 /// List<PostEntity>? posts;
+///
+/// // With explicit FK (if target entity uses a different FK column name):
+/// @OneToMany(
+///   targetEntity: PurchasesEntity,
+/// )
+/// List<PurchasesEntity>? purchases;
 /// ```
 class OneToMany {
   /// The target entity type for this relationship

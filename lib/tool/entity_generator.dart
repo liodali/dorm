@@ -57,6 +57,8 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
           'fieldName': field.name,
           'type': _getRelationType(field),
           'annotation': oneToOne ?? oneToMany ?? manyToOne ?? manyToMany,
+          'field':
+              field, // Store field element to resolve target entity's tableName
         });
         continue;
       }
@@ -505,12 +507,15 @@ $findByIdWithRelationMethods
 
       if (relationshipType == null) continue;
 
+      final field = rel['field'] as FieldElement;
       final caseCode = _generateRelationshipCase(
         fieldName,
         type,
         relationshipType,
         annotation,
         tableName,
+        className,
+        field,
       );
       cases.add(caseCode);
     }
@@ -534,6 +539,8 @@ ${cases.join('\n')}
     String relationshipType,
     ElementAnnotation annotation,
     String ownerTableName,
+    String ownerClassName,
+    FieldElement field,
   ) {
     final targetEntity = _extractTargetEntity(annotation);
     final joinTableInfo = _extractJoinTableInfo(
@@ -544,7 +551,18 @@ ${cases.join('\n')}
 
     if (relationshipType == 'OneToOne_Inverse') {
       // Inverse side - load single related entity by querying target table
-      final foreignKey = '${_snakeCase(ownerTableName)}_id';
+      // Get FK from target entity's @ManyToOne or @OneToOne annotation
+      final foreignKey = _extractForeignKeyFromTargetEntity(
+        field,
+        ownerClassName,
+      );
+      if (foreignKey == null) {
+        throw InvalidGenerationSourceError(
+          'OneToOne inverse relationship "$fieldName" requires the target entity "$targetEntity" '
+          'to have a @OneToOne or @ManyToOne annotation with foreignKey pointing to "$ownerClassName".',
+          element: field,
+        );
+      }
       return '''        case '$fieldName':
           // Load OneToOne (inverse) relationship for $fieldName
           final ${_toCamelCase(targetEntity)}Repo = ${targetEntity}Repository();
@@ -567,8 +585,22 @@ ${cases.join('\n')}
           break;''';
     } else if (relationshipType == 'OneToMany') {
       // OneToMany - load many related entities from target table
-      // FK is auto-derived as {ownerTable}_id
-      final foreignKey = '${_snakeCase(ownerTableName)}_id';
+      // Use explicit foreignKey from annotation, or get from target entity's @ManyToOne
+      final explicitForeignKey = _extractForeignKeyName(annotation);
+      final targetForeignKey = _extractForeignKeyFromTargetEntity(
+        field,
+        ownerClassName,
+      );
+      final foreignKey = explicitForeignKey ?? targetForeignKey;
+      if (foreignKey == null) {
+        throw InvalidGenerationSourceError(
+          'OneToMany relationship "$fieldName" requires either:\n'
+          '  1. A foreignKey parameter in @OneToMany, OR\n'
+          '  2. The target entity "$targetEntity" must have a @ManyToOne annotation '
+          'with foreignKey pointing to "$ownerClassName".',
+          element: field,
+        );
+      }
       return '''        case '$fieldName':
           // Load OneToMany relationship for $fieldName
           final ${_toCamelCase(targetEntity)}Repo = ${targetEntity}Repository();
@@ -657,8 +689,103 @@ ${cases.join('\n')}
   /// Extract foreignKey column name from annotation
   String? _extractForeignKeyName(ElementAnnotation annotation) {
     final source = annotation.toSource();
-    final match = RegExp(r'''foreignKey:\s*['"](\w+)['"]''').firstMatch(source);
+    final match = RegExp(
+      r'''foreignKey:\s*['"]([\w_]+)['"]''',
+    ).firstMatch(source);
     return match?.group(1);
+  }
+
+  /// Extract foreignKey from target entity's @ManyToOne or @OneToOne annotation that points back to the owner
+  /// Returns null if no matching annotation with foreignKey is found
+  String? _extractForeignKeyFromTargetEntity(
+    FieldElement field,
+    String ownerClassName,
+  ) {
+    // Get the field's type - for List<T>, extract T
+    DartType fieldType = field.type;
+
+    // Handle List<TargetEntity> type
+    if (fieldType.isDartCoreList) {
+      final listType = fieldType as InterfaceType;
+      if (listType.typeArguments.isNotEmpty) {
+        fieldType = listType.typeArguments.first;
+      }
+    }
+
+    // Get the class element from the type
+    final typeElement = fieldType.element;
+    if (typeElement is ClassElement) {
+      // Look for @ManyToOne or @OneToOne annotation on target entity's fields that points to owner
+      for (final targetField in typeElement.fields) {
+        if (targetField.isStatic) continue;
+
+        for (final annotation in targetField.metadata.annotations) {
+          final annotationName = annotation.element?.enclosingElement?.name;
+          if (annotationName == 'ManyToOne' || annotationName == 'OneToOne') {
+            final source = annotation.toSource();
+            // Check if this annotation points to the owner entity
+            final targetEntityMatch = RegExp(
+              r'targetEntity:\s*(\w+)',
+            ).firstMatch(source);
+            if (targetEntityMatch != null &&
+                targetEntityMatch.group(1) == ownerClassName) {
+              // Found matching annotation, extract its foreignKey
+              final fkMatch = RegExp(
+                r'''foreignKey:\s*['"]([\w_]+)['"]''',
+              ).firstMatch(source);
+              if (fkMatch != null) {
+                return fkMatch.group(1);
+              }
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Extract tableName from target entity's @Entity annotation
+  /// by resolving the field's type to get the target class element
+  String _extractTargetTableName(
+    FieldElement field,
+    String targetEntityClassName,
+  ) {
+    // Get the field's type - for List<T>, extract T
+    DartType fieldType = field.type;
+
+    // Handle List<TargetEntity> type
+    if (fieldType.isDartCoreList) {
+      final listType = fieldType as InterfaceType;
+      if (listType.typeArguments.isNotEmpty) {
+        fieldType = listType.typeArguments.first;
+      }
+    }
+
+    // Get the class element from the type
+    final typeElement = fieldType.element;
+    if (typeElement is ClassElement) {
+      // Look for @Entity annotation on the target class
+      for (final annotation in typeElement.metadata.annotations) {
+        if (annotation.element?.enclosingElement?.name == 'Entity') {
+          final source = annotation.toSource();
+          // Extract tableName from @Entity(tableName: 'xxx')
+          final tableNameMatch = RegExp(
+            r'''tableName:\s*['"]([\w_]+)['"]''',
+          ).firstMatch(source);
+          if (tableNameMatch != null) {
+            return tableNameMatch.group(1)!;
+          }
+        }
+      }
+      // Fallback: derive table name from class name
+      final className = typeElement.name;
+      if (className != null) {
+        return _snakeCase(className);
+      }
+    }
+
+    // Fallback: derive from target entity class name
+    return _snakeCase(targetEntityClassName);
   }
 
   /// Extract the Dart field name for the foreign key (e.g., userId for user_id)
@@ -790,11 +917,19 @@ ${cases.join('\n')}
 
       final fieldName = rel['fieldName'];
       final targetEntity = _extractTargetEntity(annotation);
+      final field = rel['field'] as FieldElement;
       final isOwning = _extractIsOwning(annotation);
 
       if (isOwning) {
         // Owning side - get related entity by FK
         final foreignKeyField = _extractForeignKeyField(annotation, fieldName);
+        final fkColumn = _extractForeignKeyName(annotation);
+        if (fkColumn == null) {
+          throw InvalidGenerationSourceError(
+            'OneToOne owning relationship "$fieldName" requires a foreignKey parameter.',
+            element: field,
+          );
+        }
         methods.add('''
   /// Get the $targetEntity for this $className
   Future<$targetEntity?> get${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id) async {
@@ -807,8 +942,7 @@ ${cases.join('\n')}
 
   /// Set the $targetEntity for this $className
   Future<void> set${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id, int? ${_toCamelCase(targetEntity)}Id) async {
-    final fkColumn = '${_extractForeignKeyName(annotation) ?? '${_snakeCase(targetEntity)}_id'}';
-    final sql = "UPDATE $tableName SET \$fkColumn = @targetId WHERE id = @ownerId";
+    final sql = "UPDATE $tableName SET $fkColumn = @targetId WHERE id = @ownerId";
     await connection.execute(sql, parameters: {
       'ownerId': ${_toCamelCase(className)}Id,
       'targetId': ${_toCamelCase(targetEntity)}Id,
@@ -816,7 +950,15 @@ ${cases.join('\n')}
   }''');
       } else {
         // Inverse side - get related entity by querying target table
-        final foreignKey = '${_snakeCase(className)}_id';
+        // Get FK from target entity's @ManyToOne or @OneToOne annotation
+        final foreignKey = _extractForeignKeyFromTargetEntity(field, className);
+        if (foreignKey == null) {
+          throw InvalidGenerationSourceError(
+            'OneToOne inverse relationship "$fieldName" requires the target entity "$targetEntity" '
+            'to have a @OneToOne or @ManyToOne annotation with foreignKey pointing to "$className".',
+            element: field,
+          );
+        }
         methods.add('''
   /// Get the $targetEntity for this $className
   Future<$targetEntity?> get${_toPascalCase(fieldName)}(int ${_toCamelCase(className)}Id) async {
@@ -848,10 +990,28 @@ ${cases.join('\n')}
 
       final fieldName = rel['fieldName'];
       final targetEntity = _extractTargetEntity(annotation);
+      final field = rel['field'] as FieldElement;
 
-      // OneToMany is the owning side - FK column is auto-derived as {ownerEntity}_id
-      final foreignKey = '${_snakeCase(className)}_id';
-      final targetTable = _snakeCase(targetEntity);
+      // OneToMany is the owning side - FK column is in target table
+      // Use explicit foreignKey from annotation, or get from target entity's @ManyToOne
+      final explicitForeignKey = _extractForeignKeyName(annotation);
+      final targetForeignKey = _extractForeignKeyFromTargetEntity(
+        field,
+        className,
+      );
+      final foreignKey = explicitForeignKey ?? targetForeignKey;
+      if (foreignKey == null) {
+        throw InvalidGenerationSourceError(
+          'OneToMany relationship "$fieldName" requires either:\n'
+          '  1. A foreignKey parameter in @OneToMany, OR\n'
+          '  2. The target entity "$targetEntity" must have a @ManyToOne annotation '
+          'with foreignKey pointing to "$className".',
+          element: field,
+        );
+      }
+
+      // Get target table name from target entity's @Entity annotation
+      final targetTable = _extractTargetTableName(field, targetEntity);
 
       methods.add('''
   /// Get all ${targetEntity}s for this $className
