@@ -255,6 +255,6 @@ enum ColumnType {
   uuid,
   timestamp,
   boolean,
-  decimal,
+  real,
   json,
 }

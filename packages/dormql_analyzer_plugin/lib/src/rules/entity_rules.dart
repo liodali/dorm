@@ -49,6 +49,9 @@ final class EntityRules implements Rule {
     // Rule 6: Validate @PrimaryKey columns exist
     diagnostics.addAll(_checkPrimaryKeyColumnsExist(entity));
 
+    // Rule 7: Validate @Column type compatibility
+    diagnostics.addAll(_checkColumnTypeCompatibility(entity));
+
     return diagnostics;
   }
 
@@ -220,6 +223,53 @@ final class EntityRules implements Rule {
     }
 
     return diagnostics;
+  }
+
+  /// Rule 7: Validate @Column type compatibility with Dart type.
+  List<Diagnostic> _checkColumnTypeCompatibility(EntityInfo entity) {
+    final diagnostics = <Diagnostic>[];
+
+    for (final columnField in entity.columnFields) {
+      final columnType = columnField.columnType;
+      final dartType = columnField.dartType;
+
+      // Skip if no explicit columnType specified (default is text)
+      if (columnType == null || dartType == null) continue;
+
+      final compatibleTypes = _getCompatibleDartTypes(columnType);
+      if (compatibleTypes.isNotEmpty && !compatibleTypes.contains(dartType)) {
+        diagnostics.add(
+          Diagnostic(
+            code: DormQLErrorCodes.columnTypeMismatch,
+            message:
+                'ColumnType.$columnType is incompatible with Dart type "$dartType". '
+                'Expected one of: ${compatibleTypes.join(", ")}.',
+            severity: DiagnosticSeverity.error,
+            range: SourceRange(
+              columnField.field.offset,
+              columnField.field.length,
+            ),
+            correctionMessage:
+                'Change the Dart type to one of: ${compatibleTypes.join(", ")}',
+          ),
+        );
+      }
+    }
+
+    return diagnostics;
+  }
+
+  /// Returns the list of compatible Dart types for a given ColumnType.
+  List<String> _getCompatibleDartTypes(String columnType) {
+    return switch (columnType) {
+      'integer' || 'serial' || 'bigserial' => ['int', 'BigInt'],
+      'text' || 'uuid' => ['String'],
+      'boolean' => ['bool'],
+      'real' => ['double', 'num'],
+      'timestamp' => ['DateTime'],
+      'json' => ['String', 'Map', 'List'],
+      _ => [], // Unknown type, no validation
+    };
   }
 
   bool _isUuidStrategy(String? strategy) {

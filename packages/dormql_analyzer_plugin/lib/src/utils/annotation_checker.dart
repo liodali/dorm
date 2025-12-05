@@ -149,6 +149,38 @@ final class AnnotationChecker {
     return node.metadata.any((m) => _isAnnotation(m, 'Ignore'));
   }
 
+  /// Checks if a field has the @Column annotation.
+  static bool hasColumnAnnotation(FieldDeclaration node) {
+    return node.metadata.any((m) => _isAnnotation(m, 'Column'));
+  }
+
+  /// Gets the @Column annotation from a field, if present.
+  static Annotation? getColumnAnnotation(FieldDeclaration node) {
+    for (final annotation in node.metadata) {
+      if (_isAnnotation(annotation, 'Column')) {
+        return annotation;
+      }
+    }
+    return null;
+  }
+
+  /// Gets the columnType from a @Column annotation.
+  /// Returns the ColumnType name (e.g., 'text', 'integer', 'real', 'boolean').
+  static String? getColumnType(Annotation annotation) {
+    final args = annotation.arguments?.arguments;
+    if (args != null) {
+      for (final arg in args) {
+        if (arg is NamedExpression && arg.name.label.name == 'columnType') {
+          final expr = arg.expression;
+          if (expr is PrefixedIdentifier) {
+            return expr.identifier.name; // e.g., 'text', 'integer', 'real'
+          }
+        }
+      }
+    }
+    return null; // Default is text
+  }
+
   /// Gets the Dart type name from a field declaration.
   static String? getFieldTypeName(FieldDeclaration node) {
     final type = node.fields.type;

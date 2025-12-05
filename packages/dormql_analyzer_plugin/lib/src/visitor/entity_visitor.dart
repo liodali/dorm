@@ -19,12 +19,30 @@ final class IdFieldInfo {
   });
 }
 
+/// Information about a @Column annotated field.
+final class ColumnFieldInfo {
+  final FieldDeclaration field;
+  final Annotation annotation;
+  final String? columnType;
+  final String? dartType;
+  final bool isNullable;
+
+  const ColumnFieldInfo({
+    required this.field,
+    required this.annotation,
+    this.columnType,
+    this.dartType,
+    this.isNullable = false,
+  });
+}
+
 /// Information about an entity class.
 final class EntityInfo {
   final ClassDeclaration classNode;
   final String className;
   final String? tableName;
   final List<IdFieldInfo> idFields;
+  final List<ColumnFieldInfo> columnFields;
   final List<FieldDeclaration> fields;
   final bool hasPrimaryKeyAnnotation;
   final List<String>? primaryKeyColumns;
@@ -34,6 +52,7 @@ final class EntityInfo {
     required this.className,
     this.tableName,
     required this.idFields,
+    required this.columnFields,
     required this.fields,
     this.hasPrimaryKeyAnnotation = false,
     this.primaryKeyColumns,
@@ -57,6 +76,7 @@ final class EntityVisitor extends RecursiveAstVisitor<void> {
     final className = node.name.lexeme;
     final tableName = _extractTableName(node);
     final idFields = <IdFieldInfo>[];
+    final columnFields = <ColumnFieldInfo>[];
     final fields = <FieldDeclaration>[];
     final hasPrimaryKey = AnnotationChecker.hasPrimaryKeyAnnotation(node);
     final primaryKeyColumns = hasPrimaryKey
@@ -90,6 +110,24 @@ final class EntityVisitor extends RecursiveAstVisitor<void> {
             ),
           );
         }
+
+        // Check for @Column annotation
+        final columnAnnotation = AnnotationChecker.getColumnAnnotation(member);
+        if (columnAnnotation != null) {
+          final columnType = AnnotationChecker.getColumnType(columnAnnotation);
+          final dartType = AnnotationChecker.getFieldTypeName(member);
+          final isNullable = AnnotationChecker.isNullableType(member);
+
+          columnFields.add(
+            ColumnFieldInfo(
+              field: member,
+              annotation: columnAnnotation,
+              columnType: columnType,
+              dartType: dartType,
+              isNullable: isNullable,
+            ),
+          );
+        }
       }
     }
 
@@ -98,6 +136,7 @@ final class EntityVisitor extends RecursiveAstVisitor<void> {
       className: className,
       tableName: tableName,
       idFields: idFields,
+      columnFields: columnFields,
       fields: fields,
       hasPrimaryKeyAnnotation: hasPrimaryKey,
       primaryKeyColumns: primaryKeyColumns,

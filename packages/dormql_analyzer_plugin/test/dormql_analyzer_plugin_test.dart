@@ -1,4 +1,3 @@
-import 'package:dormql_analyzer_plugin/main.dart';
 import 'package:test/test.dart';
 
 void main() {
