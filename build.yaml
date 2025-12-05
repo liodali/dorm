@@ -14,7 +14,7 @@ targets:
 
 builders:
   entity:
-    import: "package:dorm/tool/entity_generator.dart"
+    import: "package:dormql/tool/entity_generator.dart"
     builder_factories: ["entityGeneratorBuilder"]
     build_extensions: { ".dart": [".orm.g.dart"] }
     auto_apply: dependents
@@ -22,7 +22,7 @@ builders:
     runs_before: ["dorm|migration"]
 
   migration:
-    import: "package:dorm/tool/migration_generator.dart"
+    import: "package:dormql/tool/migration_generator.dart"
     builder_factories: ["migrationGeneratorBuilder"]
     build_extensions: { ".dart": [".migration.g.dart"] }
     auto_apply: dependents
@@ -31,7 +31,7 @@ builders:
     runs_before: ["dorm|db_schema"]
 
   db_schema:
-    import: "package:dorm/tool/db_schema_generator.dart"
+    import: "package:dormql/tool/db_schema_generator.dart"
     builder_factories: ["dbSchemaGeneratorBuilder"]
     build_extensions: { ".dart": [".schemas.g.dart"] }
     auto_apply: dependents
@@ -40,7 +40,7 @@ builders:
     runs_before: ["dorm|db"]
 
   db:
-    import: "package:dorm/tool/db_generator.dart"
+    import: "package:dormql/tool/db_generator.dart"
     builder_factories: ["dbGeneratorBuilder"]
     build_extensions: { ".dart": [".db.g.dart"] }
     auto_apply: dependents
@@ -48,7 +48,7 @@ builders:
     required_inputs: [".schemas.g.dart"]
 
   schema_diff:
-    import: "package:dorm/tool/schema_diff_generator.dart"
+    import: "package:dormql/tool/schema_diff_generator.dart"
     builder_factories: ["schemaDiffGeneratorBuilder"]
     build_extensions: { ".dart": [".diff.g.dart"] }
     auto_apply: dependents
