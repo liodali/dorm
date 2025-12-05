@@ -1530,6 +1530,8 @@ extension ${className}Migrations on $className {
       'String': 'TEXT',
       'int': 'INTEGER',
       'double': 'REAL',
+      'num': 'REAL',
+      'Long': 'REAL',
       'bool': 'BOOLEAN',
       'DateTime': 'TIMESTAMP',
     };
