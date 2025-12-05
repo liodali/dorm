@@ -10,17 +10,25 @@ A Dart analyzer plugin that provides static analysis for DormQL annotations. It 
 | -------------------- | -------------------------------------- | -------- | ------------------------------------------------------------------------ |
 | **Missing ID**       | `dormql_missing_id`                    | Error    | Ensures every `@Entity` class has a primary key (`@Id` or `@PrimaryKey`) |
 | **Multiple IDs**     | `dormql_multiple_ids`                  | Warning  | Prevents multiple `@Id` annotations in a single entity                   |
-| **ID Type Mismatch** | `dormql_uuid_requires_string`          | Warning  | UUID strategy requires `String` type                                     |
-| **ID Type Mismatch** | `dormql_autoincrement_requires_int`    | Warning  | AutoIncrement/Serial requires `int` or `BigInt`                          |
+| **ID Type Mismatch** | `dormql_uuid_requires_string`          | Error    | UUID strategy requires `String` type                                     |
+| **ID Type Mismatch** | `dormql_autoincrement_requires_int`    | Error    | AutoIncrement/Serial requires `int` or `BigInt`                          |
 | **ID Nullable**      | `dormql_id_nullable_not_allowed`       | Error    | ID field cannot be nullable when `autoIncrement: false`                  |
 | **ID Conflict**      | `dormql_id_primarykey_conflict`        | Warning  | Prevents using both `@Id` and `@PrimaryKey` together                     |
 | **Field Conflict**   | `dormql_id_column_primarykey_conflict` | Warning  | Prevents `@Id` + `@Column(primaryKey: true)` on same field               |
+| **Column Type**      | `dormql_column_type_mismatch`          | Warning  | Validates `@Column` columnType matches Dart field type                   |
 
-### Relationship Validation (Planned)
+### @OneToOne Relationship Rules
 
-- `@OneToOne`, `@OneToMany`, `@ManyToOne`, `@ManyToMany` configuration checks
-- Target entity validation
-- `mappedBy` reference verification
+| Rule                   | Code                                    | Severity | Description                                       |
+| ---------------------- | --------------------------------------- | -------- | ------------------------------------------------- |
+| **Missing Target**     | `dormql_onetoone_missing_target`        | Error    | `@OneToOne` must specify `targetEntity` parameter |
+| **Invalid Target**     | `dormql_onetoone_invalid_target`        | Error    | `targetEntity` must be an `@Entity` class         |
+| **MappedBy Not Found** | `dormql_onetoone_mappedby_not_found`    | Error    | `mappedBy` field must exist in target entity      |
+| **MappedBy Invalid**   | `dormql_onetoone_mappedby_not_onetoone` | Error    | `mappedBy` field must have `@OneToOne` annotation |
+
+### Other Relationship Validation (Planned)
+
+- `@OneToMany`, `@ManyToOne`, `@ManyToMany` configuration checks
 - Join table configuration validation
 
 ### Database Version Checking (Planned)
