@@ -170,14 +170,20 @@ void main() async {
     print('Created 2 products\n');
     final purchase = PurchasesEntity(
       amount: product1.price + product2.price + 15,
-      uuid: 'uuid123',
+      uuid: 'uuid1234',
       userId: savedUser.id!,
-      createdAt: DateTime.now().millisecondsSinceEpoch,
+      createdAt: DateTime.now().millisecondsSinceEpoch.toDouble(),
     );
+
+    /// should fix the map
     final purchaseSaved = await db.purchasesEntityRepository.save(purchase);
-    await db.purchasesEntityRepository.addProducts(
+    await db.purchasesEntityRepository.addProduct(
       purchaseSaved.id!,
-      [product1Saved.id!, product2Saved.id!],
+      product1Saved.id!,
+    );
+    await db.purchasesEntityRepository.addProduct(
+      purchaseSaved.id!,
+      product2Saved.id!,
     );
     print('Created purchase\n');
 

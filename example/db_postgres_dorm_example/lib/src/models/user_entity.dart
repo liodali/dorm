@@ -1,6 +1,5 @@
 import 'package:db_postgres_dorm_example/src/models/blog_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/post_entity.dart';
-import 'package:db_postgres_dorm_example/src/models/product_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/purchases_entity.dart';
 import 'package:dormql/dorm.dart';
 
@@ -34,14 +33,15 @@ class UserEntity {
   // )
   // List<ProductEntity>? products;
 
-  @OneToMany(
-    targetEntity: PurchasesEntity,
-  )
+  /// FK is automatically discovered from PurchasesEntity's @ManyToOne annotation
+  @OneToMany(targetEntity: PurchasesEntity)
   List<PurchasesEntity>? purchasesUser;
 
+  /// FK is automatically discovered from BlogEntity's @ManyToOne annotation
   @OneToMany(targetEntity: BlogEntity)
   List<BlogEntity>? blogs;
 
+  /// FK is automatically discovered from PostEntity's @ManyToOne annotation
   @OneToMany(targetEntity: PostEntity)
   List<PostEntity>? posts;
 

@@ -1,6 +1,7 @@
 import 'package:db_postgres_dorm_example/src/models/product_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/user_entity.dart';
 import 'package:dormql/dorm.dart';
+part 'purchases_entity.orm.g.dart';
 
 @Entity(tableName: 'purchases')
 class PurchasesEntity {
@@ -13,8 +14,8 @@ class PurchasesEntity {
   double amount;
   @Column(name: 'voucher_code')
   String? voucherCode;
-  @Column(name: 'createdAt')
-  int createdAt;
+  @Column(name: 'created_at', columnType: ColumnType.real)
+  double createdAt;
 
   @Column(name: 'user_id')
   int userId;
@@ -23,8 +24,8 @@ class PurchasesEntity {
     targetEntity: ProductEntity,
     joinTable: JoinTable(
       name: 'purchases_products',
-      joinColumn: JoinColumn(name: 'purchase_id'),
-      inverseJoinColumn: JoinColumn(name: 'product_id'),
+      joinColumn: JoinColumn(name: 'purchases_id'),
+      inverseJoinColumn: JoinColumn(name: 'products_id'),
     ),
   )
   List<ProductEntity>? products;

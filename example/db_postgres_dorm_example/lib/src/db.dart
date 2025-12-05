@@ -12,7 +12,7 @@ part 'db.migration.g.dart';
 
 @Db(
   entities: [UserEntity, PostEntity, BlogEntity, ProductEntity,PurchasesEntity],
-  migrationVersion: 8,
+  migrationVersion: 11,
   config: DbConfig.postgresql(
     host: 'localhost',
     port: 5432,
