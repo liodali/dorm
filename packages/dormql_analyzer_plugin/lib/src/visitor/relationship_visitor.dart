@@ -1,5 +1,6 @@
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
+import 'package:analyzer/dart/element/element.dart';
 
 /// Information about a relationship field.
 class RelationshipInfo {
@@ -11,6 +12,9 @@ class RelationshipInfo {
   final FieldDeclaration fieldDeclaration;
   final Annotation annotation;
 
+  /// The resolved ClassElement for the targetEntity (if available)
+  final ClassElement? targetEntityElement;
+
   RelationshipInfo({
     required this.fieldName,
     required this.annotationType,
@@ -18,7 +22,22 @@ class RelationshipInfo {
     required this.mappedBy,
     required this.fieldDeclaration,
     required this.annotation,
+    this.targetEntityElement,
   });
+
+  /// Check if targetEntity has @Entity annotation
+  bool get isTargetEntityValid {
+    if (targetEntityElement == null) return false;
+    for (final m in targetEntityElement!.metadata.annotations) {
+      final element = m.element;
+      if (element is ConstructorElement) {
+        if (element.enclosingElement.name == 'Entity') {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
 }
 
 /// Visitor that extracts relationship information from entity classes.
@@ -46,6 +65,7 @@ class RelationshipVisitor extends SimpleAstVisitor<void> {
       final relType = _getRelationshipType(annotation);
       if (relType != null) {
         final targetEntity = _getTargetEntity(annotation);
+        final targetEntityElement = _getTargetEntityElement(annotation);
         final mappedBy = _getMappedBy(annotation);
         final fieldName = field.fields.variables.first.name.lexeme;
 
@@ -57,6 +77,7 @@ class RelationshipVisitor extends SimpleAstVisitor<void> {
             mappedBy: mappedBy,
             fieldDeclaration: field,
             annotation: annotation,
+            targetEntityElement: targetEntityElement,
           ),
         );
       }
@@ -102,6 +123,28 @@ class RelationshipVisitor extends SimpleAstVisitor<void> {
           final expr = arg.expression;
           if (expr is SimpleStringLiteral) {
             return expr.value;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Get the resolved ClassElement for targetEntity parameter
+  ClassElement? _getTargetEntityElement(Annotation annotation) {
+    final args = annotation.arguments?.arguments;
+    if (args != null) {
+      for (final arg in args) {
+        if (arg is NamedExpression && arg.name.label.name == 'targetEntity') {
+          final expr = arg.expression;
+          Element? element;
+          if (expr is SimpleIdentifier) {
+            element = expr.element;
+          } else if (expr is PrefixedIdentifier) {
+            element = expr.element;
+          }
+          if (element is ClassElement) {
+            return element;
           }
         }
       }

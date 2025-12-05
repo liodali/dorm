@@ -3,6 +3,7 @@ import 'package:analyzer/analysis_rule/rule_context.dart';
 import 'package:analyzer/analysis_rule/rule_visitor_registry.dart';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
+import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/error/error.dart';
 
 import '../../utils/annotation_checker.dart';
@@ -24,6 +25,28 @@ class OneToOneRules extends MultiAnalysisRule {
     severity: DiagnosticSeverity.ERROR,
   );
 
+  static const LintCode invalidTargetCode = LintCode(
+    'dormql_onetoone_invalid_target',
+    "@OneToOne targetEntity '{0}' is not an @Entity class.",
+    correctionMessage:
+        'Specify a class annotated with @Entity as targetEntity.',
+    severity: DiagnosticSeverity.ERROR,
+  );
+
+  static const LintCode mappedByNotFoundCode = LintCode(
+    'dormql_onetoone_mappedby_not_found',
+    "@OneToOne mappedBy field '{0}' not found in target entity '{1}'.",
+    correctionMessage: 'Verify the field name exists in the target entity.',
+    severity: DiagnosticSeverity.ERROR,
+  );
+
+  static const LintCode mappedByNotOneToOneCode = LintCode(
+    'dormql_onetoone_mappedby_not_onetoone',
+    "@OneToOne mappedBy field '{0}' in '{1}' must have @OneToOne annotation.",
+    correctionMessage: 'Add @OneToOne annotation to the referenced field.',
+    severity: DiagnosticSeverity.ERROR,
+  );
+
   static const LintCode invalidMappedByCode = LintCode(
     'dormql_onetoone_invalid_mappedby',
     "@OneToOne mappedBy '{0}' is invalid. Owning side should not have mappedBy.",
@@ -41,6 +64,9 @@ class OneToOneRules extends MultiAnalysisRule {
   @override
   List<LintCode> get diagnosticCodes => [
     missingTargetCode,
+    invalidTargetCode,
+    mappedByNotFoundCode,
+    mappedByNotOneToOneCode,
     invalidMappedByCode,
   ];
 
@@ -92,28 +118,63 @@ class _Visitor extends SimpleAstVisitor<void> {
       return;
     }
 
-    // 2. Check if mappedBy is used - basic validation
-    if (relationship.mappedBy != null) {
-      // For now, we just report that mappedBy should only be on inverse side
-      // Full validation requires cross-file analysis to verify the field exists
-      // and has @OneToOne pointing back
+    // 2. Check if targetEntity is a valid @Entity class
+    final targetElement = relationship.targetEntityElement;
+    if (targetElement != null && !relationship.isTargetEntityValid) {
+      rule.reportAtNode(
+        relationship.fieldDeclaration,
+        diagnosticCode: OneToOneRules.invalidTargetCode,
+        arguments: [relationship.targetEntity!],
+      );
+      return;
     }
 
-    // 3. Check owning side logic
-    _validateOwningSide(relationship, currentClass);
+    // 3. Check mappedBy validation
+    if (relationship.mappedBy != null && targetElement != null) {
+      _validateMappedBy(relationship, targetElement);
+    }
   }
 
-  void _validateOwningSide(
+  void _validateMappedBy(
     RelationshipInfo relationship,
-    ClassDeclaration currentClass,
+    ClassElement targetElement,
   ) {
-    // Check if this is the owning side (no mappedBy)
-    final isOwningSide = relationship.mappedBy == null;
+    final mappedBy = relationship.mappedBy!;
 
-    if (!isOwningSide) {
-      // This side has mappedBy, so it's the inverse side
-      // We should verify that the owning side exists
-      // For now, this is a placeholder for bidirectional validation
+    // Find the field in target entity
+    final targetField = targetElement.fields
+        .where((f) => f.name == mappedBy)
+        .firstOrNull;
+
+    final targetName = targetElement.name ?? 'Unknown';
+
+    if (targetField == null) {
+      rule.reportAtNode(
+        relationship.fieldDeclaration,
+        diagnosticCode: OneToOneRules.mappedByNotFoundCode,
+        arguments: [mappedBy, targetName],
+      );
+      return;
+    }
+
+    // Check if the target field has @OneToOne annotation
+    bool hasOneToOne = false;
+    for (final annotation in targetField.metadata.annotations) {
+      final element = annotation.element;
+      if (element is ConstructorElement) {
+        if (element.enclosingElement.name == 'OneToOne') {
+          hasOneToOne = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasOneToOne) {
+      rule.reportAtNode(
+        relationship.fieldDeclaration,
+        diagnosticCode: OneToOneRules.mappedByNotOneToOneCode,
+        arguments: [mappedBy, targetName],
+      );
     }
   }
 }
