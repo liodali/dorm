@@ -1,6 +1,7 @@
 import 'package:db_postgres_dorm_example/src/models/blog_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/post_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/product_entity.dart';
+import 'package:db_postgres_dorm_example/src/models/purchases_entity.dart';
 import 'package:dormql/dorm.dart';
 
 import 'models/user_entity.dart';
@@ -10,7 +11,7 @@ part 'db.db.g.dart';
 part 'db.migration.g.dart';
 
 @Db(
-  entities: [UserEntity, PostEntity, BlogEntity, ProductEntity],
+  entities: [UserEntity, PostEntity, BlogEntity, ProductEntity,PurchasesEntity],
   migrationVersion: 8,
   config: DbConfig.postgresql(
     host: 'localhost',

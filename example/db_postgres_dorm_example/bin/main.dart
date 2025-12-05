@@ -1,5 +1,6 @@
 import 'package:db_postgres_dorm_example/src/db.dart';
 import 'package:db_postgres_dorm_example/src/models/product_entity.dart';
+import 'package:db_postgres_dorm_example/src/models/purchases_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/user_entity.dart';
 import 'package:db_postgres_dorm_example/src/models/post_entity.dart';
 import 'package:dormql/dorm.dart';
@@ -37,7 +38,7 @@ final migrations = <DatabaseMigration>[
     upSql: "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number TEXT;",
     downSql: 'ALTER TABLE users DROP COLUMN IF EXISTS phone_number;',
   ),
-RawSqlMigration(
+  RawSqlMigration(
     version: 7,
     description: 'Add description column to products',
     upSql: "ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;",
@@ -164,19 +165,33 @@ void main() async {
       category: 'Category 2',
       price: 200,
     );
-   final product1Saved = await db.productEntityRepository.save(product1);
-   final product2Saved = await db.productEntityRepository.save(product2);
+    final product1Saved = await db.productEntityRepository.save(product1);
+    final product2Saved = await db.productEntityRepository.save(product2);
     print('Created 2 products\n');
+    final purchase = PurchasesEntity(
+      amount: product1.price + product2.price + 15,
+      uuid: 'uuid123',
+      userId: savedUser.id!,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    final purchaseSaved = await db.purchasesEntityRepository.save(purchase);
+    await db.purchasesEntityRepository.addProducts(
+      purchaseSaved.id!,
+      [product1Saved.id!, product2Saved.id!],
+    );
+    print('Created purchase\n');
 
-    await db.userEntityRepository.addProduct(savedUser.id!, product1Saved.id!);
-    await db.userEntityRepository.addProduct(savedUser.id!, product2Saved.id!);
+    await db.userEntityRepository.addPurchasesUser(
+      savedUser.id!,
+      purchaseSaved.id!,
+    );
 
-    final productByUser = await db.userEntityRepository.getProducts(
+    final purchasesByUser = await db.userEntityRepository.getPurchasesUser(
       savedUser.id!,
     );
-    print('Product by user: ${productByUser.length}\n');
-    for (final p in productByUser) {
-      print('  - ${p.id}: ${p.name}');
+    print('Product by user: ${purchasesByUser.length}\n');
+    for (final p in purchasesByUser) {
+      print('  - ${p.id}: ${p.amount}');
     }
 
     // Query users

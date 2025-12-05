@@ -25,7 +25,7 @@ class ProductEntity {
   // List<UserEntity>? users;
 
   /// Inverse side of ManyToMany - references the owning side field
-  @ManyToMany(targetEntity: PurchasesEntity, mappedBy: 'purchases')
+  @ManyToMany(targetEntity: PurchasesEntity, mappedBy: 'products')
   List<PurchasesEntity>? purchases;
 
   ProductEntity({
