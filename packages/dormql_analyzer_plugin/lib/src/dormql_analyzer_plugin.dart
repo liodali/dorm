@@ -5,6 +5,7 @@ import 'fixes/add_id_fix.dart';
 import 'fixes/int_id_fix.dart';
 import 'fixes/onetoone_fixes.dart';
 import 'fixes/remove_nullable_fix.dart';
+import 'rules/entity/column_type_mismatch_rule.dart';
 import 'rules/entity/id_nullable_rule.dart';
 import 'rules/entity/id_primarykey_conflict_rule.dart';
 import 'rules/entity/id_type_mismatch_rule.dart';
@@ -30,6 +31,7 @@ final class DormQLAnalyzerPlugin extends Plugin {
     registry.registerWarningRule(IdTypeMismatchRule());
     registry.registerWarningRule(IdPrimaryKeyConflictRule());
     registry.registerWarningRule(IdNullableRule());
+    registry.registerWarningRule(ColumnTypeMismatchRule());
 
     // Relationship validation rules
     registry.registerWarningRule(OneToOneRules());
