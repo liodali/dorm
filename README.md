@@ -37,6 +37,7 @@ A powerful ORM for Dart inspired by Hibernate (Java) and Entity Framework (C#) w
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Analyzer Plugin](#analyzer-plugin)
 - [Public API Reference](#public-api-reference)
   - [Annotations](#annotations)
   - [Repository](#repository-api)
@@ -56,12 +57,13 @@ Add DORM to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dormql: ^0.2.0
+  dormql: ^0.3.0
   postgres: ^3.1.0 # For PostgreSQL
   sqlite3: ^3.0.1 # For SQLite
 
 dev_dependencies:
   build_runner: ^2.10.3
+  dormql_analyzer_plugin: ^1.0.0 # Optional: Static analysis
 ```
 
 ---
@@ -153,6 +155,51 @@ void main() async {
   await db.close();
 }
 ```
+
+---
+
+## Analyzer Plugin
+
+DORM includes a static analysis plugin (`dormql_analyzer_plugin`) that validates your entity configurations at development time, catching errors before runtime.
+
+### Installation
+
+Add to your `analysis_options.yaml`:
+
+```yaml
+analyzer:
+  plugins:
+    - dormql_analyzer_plugin
+```
+
+Add to `pubspec.yaml`:
+
+```yaml
+dev_dependencies:
+  dormql_analyzer_plugin: ^1.0.0
+```
+
+### Validation Rules
+
+| Category        | Rule                                 | Description                                       |
+| --------------- | ------------------------------------ | ------------------------------------------------- |
+| **Entity**      | `dormql_missing_id`                  | Every `@Entity` must have `@Id` or `@PrimaryKey`  |
+| **Entity**      | `dormql_multiple_ids`                | Only one `@Id` annotation allowed per entity      |
+| **ID Type**     | `dormql_uuid_requires_string`        | UUID strategy requires `String` type              |
+| **ID Type**     | `dormql_autoincrement_requires_int`  | AutoIncrement requires `int` or `BigInt`          |
+| **ID Nullable** | `dormql_id_nullable_not_allowed`     | ID cannot be nullable with `autoIncrement: false` |
+| **Conflict**    | `dormql_id_primarykey_conflict`      | Cannot use both `@Id` and `@PrimaryKey`           |
+| **@OneToOne**   | `dormql_onetoone_missing_target`     | Must specify `targetEntity`                       |
+| **@OneToOne**   | `dormql_onetoone_mappedby_not_found` | `mappedBy` field must exist in target             |
+
+### Quick Fixes
+
+The plugin provides IDE quick fixes:
+
+- **Missing ID**: Add `@Id() int id;` or `@Id.uuid() String id;`
+- **Nullable ID**: Remove `?` from type declaration
+
+For full documentation, see [`packages/dormql_analyzer_plugin/README.md`](packages/dormql_analyzer_plugin/README.md).
 
 ---
 

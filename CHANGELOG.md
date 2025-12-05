@@ -1,4 +1,28 @@
-## 0.3.0
+## 0.7.0
+
+### Upcoming
+
+- ⏳ cassandra support
+
+## 0.6.0
+
+### Upcoming
+
+- ⏳ improve select query API
+- ⏳ add sql built-in functions
+- ⏳ improve raw query API
+
+## 0.5.0
+
+### Upcoming
+
+- ⏳ Support SSL for postgresql connection
+- ⏳ Support SSL for mysql connection
+- ⏳ Detect SQL injection in raw queries
+- ⏳ improve support for stored procedures
+- ⏳ Add support for custom types
+
+## 0.4.0
 
 ### Upcoming
 
@@ -6,6 +30,22 @@
 - ⏳ Add tests for migration and schema validation
 - ⏳ Add MySQL package support
 - ⏳ Add DTO generator
+
+## 0.3.0
+
+### Completed
+
+- ✅ Add `dormql_analyzer_plugin` - Static analysis plugin for DormQL annotations
+- ✅ Entity validation rules (missing ID, multiple IDs, ID type mismatch)
+- ✅ `@OneToOne` relationship validation (target entity, mappedBy checks)
+- ✅ Quick fixes for common issues (add ID field, remove nullable marker)
+- ✅ Improved `@OneToMany` relationship - auto-resolve FK from target entity's `@ManyToOne`
+- ✅ Improved `@OneToMany` relationship - auto-resolve target table from `@Entity` annotation
+- ✅ Remove `targetTable` parameter from `@OneToMany` (now auto-resolved)
+- ✅ Remove `foreignKey` parameter from `@OneToMany` (now auto-resolved from target's `@ManyToOne`)
+- ✅ Better error messages when FK cannot be resolved
+- ✅ Removed `dbType` from `@Entity` (database type is now derived from `@Db`'s `DbConfig`)
+- ✅ Extended `@Id` to support `autoIncrement` and `strategy` (including `IDStrategy.uuid`) with database-specific auto-increment handling
 
 ## 0.2.0
 
@@ -26,7 +66,6 @@
 - ✅ Add `generateSql` parameter to `@Db` annotation
 - ✅ Generate SQL files at `.dart_tool/dorm/<db_name>.sql` on build
 - ✅ Versioned SQL files: `<db_name>_v<version>.sql`
-
 
 ## 0.1.0
 
