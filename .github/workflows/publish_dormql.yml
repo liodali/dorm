@@ -5,9 +5,16 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+*"
 
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: read  # This is required for actions/checkout
+
+
 jobs:
   runs-on: ubuntu-latest
-  environment: pub.dev
+  # publish:
+  #   permissions:
+  #     id-token: write # Required for authentication using OIDC
   steps:
     - uses: actions/checkout@v4
     - uses: dart-lang/setup-dart@v1
