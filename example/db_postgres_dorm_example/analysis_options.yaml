@@ -25,8 +25,8 @@ analyzer:
 # For more information about the core and recommended set of lints, see
 # https://dart.dev/go/core-lints
 plugins:
-  dormql_analyzer_plugin:
-    path: ../../packages/dormql_analyzer_plugin
+  dormql_analyzer_plugin: ^0.1.0
+    # path: ../../packages/dormql_analyzer_plugin
 
 # For additional information about configuring this file, see
 # https://dart.dev/guides/language/analysis-options

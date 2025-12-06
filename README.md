@@ -63,7 +63,7 @@ dependencies:
 
 dev_dependencies:
   build_runner: ^2.10.3
-  dormql_analyzer_plugin: ^1.0.0 # Optional: Static analysis
+  dormql_analyzer_plugin: ^0.1.0 # Optional: Static analysis
 ```
 
 ---

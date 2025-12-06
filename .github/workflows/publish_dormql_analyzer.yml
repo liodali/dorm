@@ -25,5 +25,6 @@ jobs:
       run: |
         cd packages/dormql_analyzer_plugin
         dart pub get
+        dart format .
         dart pub publish --dry-run
         dart pub publish -f

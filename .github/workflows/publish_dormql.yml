@@ -7,8 +7,7 @@ on:
 
 permissions:
   id-token: write # This is required for requesting the JWT
-  contents: read  # This is required for actions/checkout
-
+  contents: read # This is required for actions/checkout
 
 jobs:
   runs-on: ubuntu-latest
@@ -24,7 +23,10 @@ jobs:
         rm -rf docs
         mv example/db_postgres_dorm_example/* example/
         rm -rf example/db_postgres_dorm_example
-
-    - run: dart pub get
-    - run: dart pub publish --dry-run
-    - run: dart pub publish -f
+        rm -rf packages
+    - name: publish
+      run: |
+        dart pub get
+        dart format .
+        dart pub publish --dry-run
+        dart pub publish -f
