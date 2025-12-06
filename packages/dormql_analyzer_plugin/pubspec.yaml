@@ -1,7 +1,7 @@
 name: dormql_analyzer_plugin
 description: analyzer plugin for dormql, to analyze dormql annotations and validate them
-version: 0.1.0
-repository: https://github.com/lioda/dorm
+version: 0.1.1
+repository: https://github.com/liodali/dorm
 
 environment:
   sdk: ^3.10.1

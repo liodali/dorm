@@ -57,7 +57,7 @@ Add the dependency to your `pubspec.yaml`:
 
 ```yaml
 dev_dependencies:
-  dormql_analyzer_plugin: ^0.1.0
+  dormql_analyzer_plugin: ^0.1.1
 ```
 
 ## Usage
