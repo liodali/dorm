@@ -1,7 +1,7 @@
 name: dormql_analyzer_plugin
-description: A starting point for Dart libraries or applications.
-version: 1.0.0
-# repository: https://github.com/my_org/my_repo
+description: analyzer plugin for dormql, to analyze dormql annotations and validate them
+version: 0.1.0
+repository: https://github.com/lioda/dorm
 
 environment:
   sdk: ^3.10.1

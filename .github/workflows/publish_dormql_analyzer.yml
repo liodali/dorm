@@ -1,0 +1,26 @@
+name: Release package:dormql_analyzer_plugin
+
+on:
+  push:
+    tags:
+      - "dormql_analyzer_plugin-v[0-9]+.[0-9]+.[0-9]+*"
+
+jobs:
+  runs-on: ubuntu-latest
+  environment: pub.dev
+  steps:
+    - uses: actions/checkout@v4
+    - uses: dart-lang/setup-dart@v1
+    - name: clean directory
+      run: |
+        rm -rf packages
+        rm -rf docs
+        mv example/db_postgres_dorm_example/* example/
+        rm -rf example/db_postgres_dorm_example
+
+    - name: publish
+      run: |
+         cd packages/dormql_analyzer_plugin
+         dart pub get
+         dart pub publish --dry-run
+         dart pub publish -f
