@@ -11,7 +11,13 @@ part 'db.db.g.dart';
 part 'db.migration.g.dart';
 
 @Db(
-  entities: [UserEntity, PostEntity, BlogEntity, ProductEntity,PurchasesEntity],
+  entities: [
+    UserEntity,
+    PostEntity,
+    BlogEntity,
+    ProductEntity,
+    PurchasesEntity,
+  ],
   migrationVersion: 11,
   config: DbConfig.postgresql(
     host: 'localhost',

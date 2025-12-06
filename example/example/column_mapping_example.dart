@@ -204,7 +204,7 @@ void main() async {
 }
 
 /// SQL Schema generated for User table:
-/// 
+///
 /// CREATE TABLE users (
 ///   id SERIAL PRIMARY KEY,
 ///   first_name VARCHAR(255) NOT NULL,
@@ -218,7 +218,7 @@ void main() async {
 /// );
 
 /// SQL Schema generated for Product table:
-/// 
+///
 /// CREATE TABLE products (
 ///   id SERIAL PRIMARY KEY,
 ///   product_name VARCHAR(255) NOT NULL,
@@ -230,7 +230,7 @@ void main() async {
 /// );
 
 /// SQL Schema generated for Category table:
-/// 
+///
 /// CREATE TABLE categories (
 ///   id SERIAL PRIMARY KEY,
 ///   category_name VARCHAR(255) NOT NULL,
