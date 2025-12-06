@@ -15,9 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
-      - name: clean directory
+      - name: clean directories
         run: |
-          rm -rf packages
           rm -rf docs
           mv example/db_postgres_dorm_example/* example/
           rm -rf example/db_postgres_dorm_example
