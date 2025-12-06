@@ -6,11 +6,12 @@ on:
       - "dormql_analyzer_plugin-v[0-9]+.[0-9]+.[0-9]+*"
 
 permissions:
-  id-token: write # This is required for requesting the JWT
+  id-token: write # This is required for requesting the JWT, for authentication using OIDC
   contents: read # This is required for actions/checkout
 
 jobs:
-  runs-on: ubuntu-latest
+  publish:
+    runs-on: ubuntu-latest
   steps:
     - uses: actions/checkout@v4
     - uses: dart-lang/setup-dart@v1
