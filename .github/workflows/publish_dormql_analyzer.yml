@@ -1,4 +1,4 @@
-name: Release package:dormql_analyzer_plugin
+name: Release package dormql_analyzer_plugin
 
 on:
   push:
