@@ -12,19 +12,19 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
-    - uses: dart-lang/setup-dart@v1
-    - name: clean directory
-      run: |
-        rm -rf packages
-        rm -rf docs
-        mv example/db_postgres_dorm_example/* example/
-        rm -rf example/db_postgres_dorm_example
-        rm -rf packages
-    - name: publish
-      run: |
-        dart pub get
-        dart format .
-        dart pub publish --dry-run
-        dart pub publish -f
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - name: clean directory
+        run: |
+          rm -rf packages
+          rm -rf docs
+          mv example/db_postgres_dorm_example/* example/
+          rm -rf example/db_postgres_dorm_example
+          rm -rf packages
+      - name: publish
+        run: |
+          dart pub get
+          dart format .
+          dart pub publish --dry-run
+          dart pub publish -f
