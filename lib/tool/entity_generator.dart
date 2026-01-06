@@ -5,6 +5,7 @@ import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
 import 'package:collection/collection.dart';
 import 'package:dormql/src/annotation.dart';
+import 'package:dormql/src/column_metadata.dart';
 import 'package:dormql/src/database/database_connection.dart';
 import 'package:source_gen/source_gen.dart';
 import 'db_type_helper.dart';
@@ -299,11 +300,21 @@ class EntityGenerator extends GeneratorForAnnotation<Entity> {
     // Calculate relative path for part of directive
     final entityFileName = _getEntityFileName(sourceFilePath);
 
+    // Generate Columns class
+    final columnsClass = _generateColumnsClass(className, tableName, fields);
+
     return '''
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // Generated code for $className
 
 part of '$entityFileName';
+
+$columnsClass
+
+/// Extension to add columns getter to entity
+extension ${className}Extension on $className {
+  static ${className}Columns get columns => const ${className}Columns._();
+}
 
 class ${className}Repository extends Repository<$className> {
   ${className}Repository() : super(
@@ -1292,6 +1303,40 @@ $relLoadersCode
       return text.substring(0, text.length - 1);
     }
     return text;
+  }
+
+  /// Generate the static Columns class for type-safe column references
+  String _generateColumnsClass(
+    String className,
+    String tableName,
+    List<Map<String, dynamic>> fields,
+  ) {
+    final columnFields = fields.map((f) {
+      return '''
+  /// Column metadata for ${f['name']}
+  static const ColumnMetadata ${f['name']} = ColumnMetadata(
+    fieldName: '${f['name']}',
+    columnName: '${f['columnName']}',
+    dartType: '${f['type']}',
+    sqlType: '${f['sqlType']}',
+    isPrimaryKey: ${f['isPrimaryKey']},
+    isNullable: ${f['isNullable']},
+    tableName: '$tableName',
+  );''';
+    }).join('\n\n');
+
+    return '''
+/// Type-safe column references for $className
+class ${className}Columns {
+  const ${className}Columns._();
+
+$columnFields
+
+  /// Get all columns as a list
+  static List<ColumnMetadata> get all => [
+${fields.map((f) => '      ${f['name']},').join('\n')}
+  ];
+}''';
   }
 }
 

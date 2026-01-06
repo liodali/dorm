@@ -3,6 +3,8 @@ targets:
     builders:
       dorm|entity:
         enabled: true
+      dorm|dto:
+        enabled: true
       dorm|migration:
         enabled: true
       dorm|db_schema:
@@ -17,6 +19,14 @@ builders:
     import: "package:dormql/tool/entity_generator.dart"
     builder_factories: ["entityGeneratorBuilder"]
     build_extensions: { ".dart": [".orm.g.dart"] }
+    auto_apply: dependents
+    build_to: source
+    runs_before: ["dorm|dto"]
+
+  dto:
+    import: "package:dormql/tool/dto_generator.dart"
+    builder_factories: ["dtoGeneratorBuilder"]
+    build_extensions: { ".dart": [".dto.g.dart"] }
     auto_apply: dependents
     build_to: source
     runs_before: ["dorm|migration"]
