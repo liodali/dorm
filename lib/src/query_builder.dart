@@ -1,3 +1,4 @@
+import 'package:dormql/src/column_metadata.dart';
 import 'package:dormql/src/repository.dart';
 
 /// EntityFramework-style LINQ query builder
@@ -20,6 +21,12 @@ class QueryBuilder<T> {
     final sb = SelectBuilder();
     builder(sb);
     _selects.addAll(sb._columns);
+    return this;
+  }
+
+  /// SELECT specific columns using ColumnMetadata (type-safe)
+  QueryBuilder<T> selectColumns(List<ColumnMetadata> columns) {
+    _selects.addAll(columns.map((c) => c.columnName));
     return this;
   }
 
@@ -305,6 +312,17 @@ class QueryBuilder<T> {
 class SelectBuilder {
   final List<String> _columns = [];
 
+  /// Add a single column by name (legacy support)
   void column(String name) => _columns.add(name);
+
+  /// Add multiple columns by name (legacy support)
   void columns(List<String> names) => _columns.addAll(names);
+
+  /// Add a single column by ColumnMetadata
+  void columnMeta(ColumnMetadata col) => _columns.add(col.columnName);
+
+  /// Add multiple columns by ColumnMetadata (type-safe)
+  void columnsMeta(List<ColumnMetadata> cols) {
+    _columns.addAll(cols.map((c) => c.columnName));
+  }
 }

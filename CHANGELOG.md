@@ -24,12 +24,18 @@
 
 ## 0.4.0
 
+### Completed
+
+- ✅ Add type-safe column references via `Entity.columns.fieldName` - Use `ColumnMetadata` objects for compile-time type safety
+- ✅ Add DTO generator - Automatically generates DTOs for all entities, excluding relationship fields
+- ✅ Add `selectColumns()` method to QueryBuilder for type-safe column selection
+- ✅ Add `columnsMeta()` method to SelectBuilder for backward compatibility
+
 ### Upcoming
 
 - ⏳ Integrate YAML file for connection configuration and environment variables
 - ⏳ Add tests for migration and schema validation
 - ⏳ Add MySQL package support
-- ⏳ Add DTO generator
 
 ## 0.3.0
 

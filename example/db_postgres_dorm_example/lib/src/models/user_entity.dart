@@ -4,6 +4,7 @@ import 'package:db_postgres_dorm_example/src/models/purchases_entity.dart';
 import 'package:dormql/dorm.dart';
 
 part 'user_entity.orm.g.dart';
+part 'user_entity.dto.g.dart';
 
 @Entity(
   tableName: 'users',
