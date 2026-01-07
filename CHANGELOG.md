@@ -31,11 +31,11 @@
 - ✅ Add `selectColumns()` method to QueryBuilder for type-safe column selection
 - ✅ Add `columnsMeta()` method to SelectBuilder for backward compatibility
 
+- ✅ Add MySQL package support using `mysql_client_plus` (no SSL mode)
 ### Upcoming
 
 - ⏳ Integrate YAML file for connection configuration and environment variables
 - ⏳ Add tests for migration and schema validation
-- ⏳ Add MySQL package support
 
 ## 0.3.0
 
