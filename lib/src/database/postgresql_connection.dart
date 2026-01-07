@@ -156,14 +156,14 @@ class PostgreSQLTransaction implements DatabaseTransaction {
   @override
   Future<void> commit() async {
     _ensureActive();
-    await _connection.execute('COMMIT');
+    await _connection.execute('COMMIT;');
     _isActive = false;
   }
 
   @override
   Future<void> rollback() async {
     _ensureActive();
-    await _connection.execute('ROLLBACK');
+    await _connection.execute('ROLLBACK;');
     _isActive = false;
   }
 
