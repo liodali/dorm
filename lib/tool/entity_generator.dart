@@ -1310,10 +1310,10 @@ $relLoadersCode
     String tableName,
     List<Map<String, dynamic>> fields,
   ) {
-    final columnFields = fields.map((f) {
+    final columnGetters = fields.map((f) {
       return '''
   /// Column metadata for ${f['name']}
-  final ColumnMetadata ${f['name']} = ColumnMetadata(
+  ColumnMetadata get ${f['name']} => ColumnMetadata(
     fieldName: '${f['name']}',
     columnName: '${f['columnName']}',
     dartType: '${f['type']}',
@@ -1329,7 +1329,7 @@ $relLoadersCode
 class ${className}Columns {
   const ${className}Columns._();
 
-$columnFields
+$columnGetters
 
   /// Get all columns as a list
   List<ColumnMetadata> get all => [
