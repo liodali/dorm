@@ -59,7 +59,11 @@ class DtoGenerator extends GeneratorForAnnotation<Entity> {
       return '';
     }
 
-    return _generateDtoCode(className!, dtoClassName, primitiveFields);
+    // Get source file path for part of directive
+    final sourceFilePath = buildStep.inputId.path;
+    final entityFileName = _getEntityFileName(sourceFilePath);
+
+    return _generateDtoCode(className!, dtoClassName, primitiveFields, entityFileName);
   }
 
   ElementAnnotation? _getAnnotation(FieldElement field, String name) {
@@ -68,10 +72,17 @@ class DtoGenerator extends GeneratorForAnnotation<Entity> {
     );
   }
 
+  String _getEntityFileName(String inputPath) {
+    // Extract just the file name from the full path
+    // Example: lib/src/models/user_entity.dart -> user_entity.dart
+    return inputPath.split('/').last;
+  }
+
   String _generateDtoCode(
     String entityClassName,
     String dtoClassName,
     List<Map<String, dynamic>> fields,
+    String entityFileName,
   ) {
     // Generate field declarations
     final fieldDeclarations = fields.map((f) {
@@ -141,6 +152,8 @@ class DtoGenerator extends GeneratorForAnnotation<Entity> {
     return '''
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // DTO for $entityClassName
+
+part of '$entityFileName';
 
 /// Data Transfer Object for $entityClassName
 /// Excludes relationship fields and only includes primitive data
