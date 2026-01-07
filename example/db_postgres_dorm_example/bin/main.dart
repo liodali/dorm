@@ -222,6 +222,10 @@ void main() async {
     print('LINQ-style query example...');
     final recentUsers = await db.userEntityRepository
         .query()
+        .selectColumns([
+          UserEntityRepository.columns.id,
+          UserEntityRepository.columns.email,
+        ])
         .where('email LIKE @pattern', {'pattern': '%@example.com'})
         .orderByDescending('id')
         .take(5)
