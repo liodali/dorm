@@ -1,13 +1,12 @@
 import 'dart:async';
+import 'package:mysql_client_plus/mysql_client_plus.dart' as mysql;
 import 'database_connection.dart';
-// Uncomment when mysql1 package is added:
-// import 'package:mysql1/mysql1.dart' as mysql;
 
 /// MySQL implementation of DatabaseConnection
-/// Note: Requires mysql1 package: Add "mysql1: ^0.20.0" to pubspec.yaml
+/// Uses mysql_client_plus package for MySQL connectivity
 class MySQLConnection implements DatabaseConnection {
   final DatabaseConfig config;
-  dynamic _connection; // Will be mysql.MySqlConnection when package is added
+  mysql.MySQLConnection? _connection;
   bool _isOpen = false;
 
   MySQLConnection(this.config) {
@@ -20,22 +19,17 @@ class MySQLConnection implements DatabaseConnection {
   Future<void> open() async {
     if (_isOpen) return;
 
-    // Uncomment when mysql1 package is added:
-    // final settings = mysql.ConnectionSettings(
-    //   host: config.host!,
-    //   port: config.port!,
-    //   user: config.username!,
-    //   password: config.password!,
-    //   db: config.database!,
-    //   timeout: config.connectionTimeout,
-    // );
-    // _connection = await mysql.MySqlConnection.connect(settings);
-    // _isOpen = true;
-
-    throw UnimplementedError(
-      'MySQL support requires mysql1 package. '
-      'Add "mysql1: ^0.20.0" to pubspec.yaml and uncomment the implementation code.',
+    _connection = await mysql.MySQLConnection.createConnection(
+      host: config.host!,
+      port: config.port!,
+      userName: config.username!,
+      password: config.password!,
+      databaseName: config.database!,
+      secure: false,
     );
+
+    await _connection!.connect();
+    _isOpen = true;
   }
 
   @override
@@ -45,22 +39,16 @@ class MySQLConnection implements DatabaseConnection {
   }) async {
     await _ensureOpen();
 
-    // Uncomment when mysql1 package is added:
-    // // Convert named parameters (@param) to positional (?)
-    // final paramList = <dynamic>[];
-    // var convertedSql = sql;
-    //
-    // if (parameters != null && parameters.isNotEmpty) {
-    //   for (var key in parameters.keys) {
-    //     convertedSql = convertedSql.replaceAll('@$key', '?');
-    //     paramList.add(parameters[key]);
-    //   }
-    // }
-    //
-    // final results = await _connection.query(convertedSql, paramList);
-    // return results.map((row) => row.fields).toList();
+    final result = await _connection!.execute(
+      sql,
+      parameters ?? {},
+    );
 
-    throw UnimplementedError('MySQL query - add mysql1 package to enable');
+    final rows = <Map<String, dynamic>>[];
+    for (final row in result.rows) {
+      rows.add(row.assoc());
+    }
+    return rows;
   }
 
   @override
@@ -70,22 +58,12 @@ class MySQLConnection implements DatabaseConnection {
   }) async {
     await _ensureOpen();
 
-    // Uncomment when mysql1 package is added:
-    // // Convert named parameters (@param) to positional (?)
-    // final paramList = <dynamic>[];
-    // var convertedSql = sql;
-    //
-    // if (parameters != null && parameters.isNotEmpty) {
-    //   for (var key in parameters.keys) {
-    //     convertedSql = convertedSql.replaceAll('@$key', '?');
-    //     paramList.add(parameters[key]);
-    //   }
-    // }
-    //
-    // final result = await _connection.query(convertedSql, paramList);
-    // return result.affectedRows ?? 0;
+    final result = await _connection!.execute(
+      sql,
+      parameters ?? {},
+    );
 
-    throw UnimplementedError('MySQL execute - add mysql1 package to enable');
+    return result.affectedRows.toInt();
   }
 
   @override
@@ -95,35 +73,28 @@ class MySQLConnection implements DatabaseConnection {
   }) async {
     await _ensureOpen();
 
-    // Uncomment when mysql1 package is added:
-    // // Convert named parameters (@param) to positional (?)
-    // final paramList = <dynamic>[];
-    // var convertedSql = sql;
-    //
-    // if (parameters != null && parameters.isNotEmpty) {
-    //   for (var key in parameters.keys) {
-    //     convertedSql = convertedSql.replaceAll('@$key', '?');
-    //     paramList.add(parameters[key]);
-    //   }
-    // }
-    //
-    // final results = await _connection.query(convertedSql, paramList);
-    // return results.map((row) => row.values?.toList() ?? []).toList();
+    final result = await _connection!.execute(
+      sql,
+      parameters ?? {},
+    );
 
-    throw UnimplementedError('MySQL rawQuery - add mysql1 package to enable');
+    final rows = <List<dynamic>>[];
+    for (final row in result.rows) {
+      rows.add(row.typedAssoc().values.toList());
+    }
+    return rows;
   }
 
   @override
   Future<DatabaseTransaction> beginTransaction() async {
     await _ensureOpen();
-    return MySQLTransaction(/*_connection*/);
+    return MySQLTransaction(_connection!);
   }
 
   @override
   Future<void> close() async {
     if (_connection != null && _isOpen) {
-      // Uncomment when mysql1 package is added:
-      // await _connection.close();
+      await _connection!.close();
       _isOpen = false;
       _connection = null;
     }
@@ -144,10 +115,18 @@ class MySQLConnection implements DatabaseConnection {
 
 /// MySQL transaction implementation
 class MySQLTransaction implements DatabaseTransaction {
-  // final dynamic _connection;
+  final mysql.MySQLConnection _connection;
   bool _isActive = true;
+  bool _transactionStarted = false;
 
-  MySQLTransaction(/*this._connection*/);
+  MySQLTransaction(this._connection);
+
+  Future<void> _ensureTransactionStarted() async {
+    if (!_transactionStarted) {
+      await _connection.execute('START TRANSACTION');
+      _transactionStarted = true;
+    }
+  }
 
   @override
   Future<List<Map<String, dynamic>>> query(
@@ -155,23 +134,18 @@ class MySQLTransaction implements DatabaseTransaction {
     Map<String, dynamic>? parameters,
   }) async {
     _ensureActive();
+    await _ensureTransactionStarted();
 
-    // Uncomment when mysql1 package is added:
-    // // Convert named parameters (@param) to positional (?)
-    // final paramList = <dynamic>[];
-    // var convertedSql = sql;
-    //
-    // if (parameters != null && parameters.isNotEmpty) {
-    //   for (var key in parameters.keys) {
-    //     convertedSql = convertedSql.replaceAll('@$key', '?');
-    //     paramList.add(parameters[key]);
-    //   }
-    // }
-    //
-    // final results = await _connection.query(convertedSql, paramList);
-    // return results.map((row) => row.fields).toList();
+    final result = await _connection.execute(
+      sql,
+      parameters ?? {},
+    );
 
-    throw UnimplementedError('MySQL transaction query - add mysql1 package');
+    final rows = <Map<String, dynamic>>[];
+    for (final row in result.rows) {
+      rows.add(row.assoc());
+    }
+    return rows;
   }
 
   @override
@@ -180,38 +154,31 @@ class MySQLTransaction implements DatabaseTransaction {
     Map<String, dynamic>? parameters,
   }) async {
     _ensureActive();
+    await _ensureTransactionStarted();
 
-    // Uncomment when mysql1 package is added:
-    // // Convert named parameters (@param) to positional (?)
-    // final paramList = <dynamic>[];
-    // var convertedSql = sql;
-    //
-    // if (parameters != null && parameters.isNotEmpty) {
-    //   for (var key in parameters.keys) {
-    //     convertedSql = convertedSql.replaceAll('@$key', '?');
-    //     paramList.add(parameters[key]);
-    //   }
-    // }
-    //
-    // final result = await _connection.query(convertedSql, paramList);
-    // return result.affectedRows ?? 0;
+    final result = await _connection.execute(
+      sql,
+      parameters ?? {},
+    );
 
-    throw UnimplementedError('MySQL transaction execute - add mysql1 package');
+    return result.affectedRows.toInt();
   }
 
   @override
   Future<void> commit() async {
     _ensureActive();
-    // Uncomment when mysql1 package is added:
-    // await _connection.query('COMMIT');
+    if (_transactionStarted) {
+      await _connection.execute('COMMIT');
+    }
     _isActive = false;
   }
 
   @override
   Future<void> rollback() async {
     _ensureActive();
-    // Uncomment when mysql1 package is added:
-    // await _connection.query('ROLLBACK');
+    if (_transactionStarted) {
+      await _connection.execute('ROLLBACK');
+    }
     _isActive = false;
   }
 
