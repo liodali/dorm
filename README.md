@@ -37,6 +37,7 @@ A powerful ORM for Dart inspired by Hibernate (Java) and Entity Framework (C#) w
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Configuration File](#configuration-file)
 - [Analyzer Plugin](#analyzer-plugin)
 - [Public API Reference](#public-api-reference)
   - [Annotations](#annotations)
@@ -155,6 +156,139 @@ void main() async {
   await db.close();
 }
 ```
+
+---
+
+## Configuration File
+
+DORM supports loading database configuration from YAML or TOML files, with environment-based configuration and environment variable expansion.
+
+### Quick Setup
+
+1. Create a `db_configuration.yml` file in your project root:
+
+```yaml
+environments:
+  development:
+    type: postgresql
+    host: localhost
+    port: 5432
+    database: myapp_dev
+    username: postgres
+    password: secret
+
+  production:
+    type: postgresql
+    host: ${DB_HOST}
+    port: 5432
+    database: ${DB_NAME}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    useSSL: true
+
+  test:
+    type: sqlite
+    filePath: ":memory:"
+```
+
+2. Use the `environment` parameter in `setup()`:
+
+```dart
+void main() async {
+  final db = Database();
+
+  // Option 1: Use environment parameter (recommended)
+  await db.setup(environment: 'development');
+
+  // Option 2: Use environment with custom config path
+  await db.setup(
+    environment: 'production',
+    configPath: 'config/database.yml',
+  );
+
+  // Option 3: Use DatabaseConfig directly (existing method)
+  await db.setup(
+    config: DatabaseConfig.postgresql(
+      host: 'localhost',
+      port: 5432,
+      database: 'mydb',
+      username: 'user',
+      password: 'pass',
+    ),
+  );
+}
+```
+
+### Configuration Priority
+
+The `setup()` method resolves configuration in this order (first non-null wins):
+
+1. `config` - Explicit `DatabaseConfig` object
+2. `environment` + `configPath` - Load from YAML/TOML configuration file
+3. Default config from `@Db` annotation (if provided)
+
+### File Locations
+
+The loader automatically searches for configuration files in these locations:
+
+1. Project root: `db_configuration.yml`, `db_configuration.yaml`, `db_configuration.toml`
+2. `config/` directory
+3. `lib/` directory
+
+### Environment Variables
+
+Use `${VAR_NAME}` syntax to reference environment variables:
+
+```yaml
+environments:
+  production:
+    host: ${DB_HOST}
+    password: ${DB_PASSWORD}
+```
+
+### Supported Database Types
+
+| Type       | Aliases                        |
+| ---------- | ------------------------------ |
+| PostgreSQL | `postgresql`, `postgres`, `pg` |
+| MySQL      | `mysql`, `mariadb`             |
+| SQLite     | `sqlite`, `sqlite3`            |
+
+### Configuration Options
+
+| Option                     | Type   | Required | Default | Description        |
+| -------------------------- | ------ | -------- | ------- | ------------------ |
+| `type`                     | string | Yes      | -       | Database type      |
+| `host`                     | string | No\*     | -       | Database host      |
+| `port`                     | int    | No\*     | -       | Database port      |
+| `database`                 | string | No\*     | -       | Database name      |
+| `username`                 | string | No\*     | -       | Database username  |
+| `password`                 | string | No\*     | -       | Database password  |
+| `filePath`                 | string | No\*\*   | -       | SQLite file path   |
+| `useSSL`                   | bool   | No       | `false` | Enable SSL         |
+| `maxConnections`           | int    | No       | `10`    | Max pool size      |
+| `connectionTimeoutSeconds` | int    | No       | `30`    | Timeout in seconds |
+
+\* Required for PostgreSQL and MySQL | \*\* Required for SQLite
+
+### Manual Loading
+
+You can also load configuration manually using `DatabaseConfigLoader`:
+
+```dart
+// Auto-detect config file
+final loader = DatabaseConfigLoader();
+final config = loader.load('development');
+
+// With explicit path
+final loader = DatabaseConfigLoader(configPath: 'config/db.yml');
+final config = loader.load('production');
+
+// Check available environments
+final envs = loader.getAvailableEnvironments(); // ['development', 'production', 'test']
+```
+
+For full documentation, see [`docs/DATABASE_CONFIG_FILE.md`](docs/DATABASE_CONFIG_FILE.md).
 
 ---
 

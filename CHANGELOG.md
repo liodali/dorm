@@ -30,11 +30,16 @@
 - ✅ Add DTO generator - Automatically generates DTOs for all entities, excluding relationship fields
 - ✅ Add `selectColumns()` method to QueryBuilder for type-safe column selection
 - ✅ Add `columnsMeta()` method to SelectBuilder for backward compatibility
-
 - ✅ Add MySQL package support using `mysql_client_plus` (no SSL mode)
+- ✅ Add YAML/TOML configuration file support for database connections
+- ✅ Add `DatabaseConfigLoader` class with auto-detection of `db_configuration.yml` or `db_configuration.toml`
+- ✅ Support environment-based configuration (development, production, test, etc.)
+- ✅ Support environment variable expansion with `${VAR_NAME}` syntax
+- ✅ Add `ConfigurationException` for configuration errors
+- ✅ Integrate `DatabaseConfigLoader` into generated `setup()` method with `environment` and `configPath` parameters
+
 ### Upcoming
 
-- ⏳ Integrate YAML file for connection configuration and environment variables
 - ⏳ Add tests for migration and schema validation
 
 ## 0.3.0

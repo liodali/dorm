@@ -1,0 +1,44 @@
+# DormQL Database Configuration
+# This file defines database connections for different environments.
+# Place this file in your project root, config/, or lib/ directory.
+
+environments:
+  # Development environment - local database
+  development:
+    type: postgresql
+    host: localhost
+    port: 5432
+    database: myapp_dev
+    username: postgres
+    password: postgres
+    useSSL: false
+    maxConnections: 10
+    connectionTimeoutSeconds: 30
+
+  # Production environment - uses environment variables for sensitive data
+  production:
+    type: postgresql
+    host: ${DB_HOST}
+    port: 5432
+    database: ${DB_NAME}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    useSSL: true
+    maxConnections: 50
+    connectionTimeoutSeconds: 60
+
+  # Test environment - in-memory SQLite for fast tests
+  test:
+    type: sqlite
+    filePath: ":memory:"
+
+  # MySQL example
+  mysql_dev:
+    type: mysql
+    host: localhost
+    port: 3306
+    database: myapp_mysql
+    username: root
+    password: root
+    useSSL: false
+    maxConnections: 10
