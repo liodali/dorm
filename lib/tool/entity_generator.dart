@@ -310,12 +310,15 @@ part of '$entityFileName';
 
 $columnsClass
 
-/// Extension to add columns getter to entity
+/// Extension to add columns getter to entity instance
 extension ${className}Extension on $className {
   ${className}Columns get columns => const ${className}Columns._();
 }
 
 class ${className}Repository extends Repository<$className> {
+  /// Type-safe columns metadata for $className
+  static const columns = ${className}Columns._();
+
   ${className}Repository() : super(
     '$tableName',
     primaryKeyColumn: '$primaryKeyColumn',
