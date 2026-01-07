@@ -312,7 +312,7 @@ $columnsClass
 
 /// Extension to add columns getter to entity
 extension ${className}Extension on $className {
-  static ${className}Columns get columns => const ${className}Columns._();
+  ${className}Columns get columns => const ${className}Columns._();
 }
 
 class ${className}Repository extends Repository<$className> {
@@ -1304,7 +1304,7 @@ $relLoadersCode
     return text;
   }
 
-  /// Generate the static Columns class for type-safe column references
+  /// Generate the Columns class for type-safe column references
   String _generateColumnsClass(
     String className,
     String tableName,
@@ -1313,7 +1313,7 @@ $relLoadersCode
     final columnFields = fields.map((f) {
       return '''
   /// Column metadata for ${f['name']}
-  static const ColumnMetadata ${f['name']} = ColumnMetadata(
+  final ColumnMetadata ${f['name']} = ColumnMetadata(
     fieldName: '${f['name']}',
     columnName: '${f['columnName']}',
     dartType: '${f['type']}',
@@ -1332,7 +1332,7 @@ class ${className}Columns {
 $columnFields
 
   /// Get all columns as a list
-  static List<ColumnMetadata> get all => [
+  List<ColumnMetadata> get all => [
 ${fields.map((f) => '      ${f['name']},').join('\n')}
   ];
 }''';
