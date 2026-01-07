@@ -175,7 +175,7 @@ class SQLiteTransaction implements DatabaseTransaction {
   Future<void> commit() async {
     _ensureActive();
     if (_transactionStarted) {
-      _database.execute('COMMIT');
+      _database.execute('COMMIT;');
       _transactionStarted = false;
     }
     _isActive = false;
@@ -185,7 +185,7 @@ class SQLiteTransaction implements DatabaseTransaction {
   Future<void> rollback() async {
     _ensureActive();
     if (_transactionStarted) {
-      _database.execute('ROLLBACK');
+      _database.execute('ROLLBACK;');
       _transactionStarted = false;
     }
     _isActive = false;
