@@ -1255,23 +1255,40 @@ extension ${dbClassName}Lifecycle on $dbClassName {
   /// Schema hash for detecting changes
   static const String schemaHash = '$schemaHash';
 
-  /// Setup database: connect (using config from annotation or parameter), run migrations, validate schema
+  /// Setup database: connect (using config from annotation, parameter, or configuration file), run migrations, validate schema
   /// 
-  /// [config] - Optional DatabaseConfig, uses annotation config if not provided
+  /// Configuration priority (first non-null wins):
+  /// 1. [config] - Explicit DatabaseConfig object
+  /// 2. [environment] + [configPath] - Load from YAML/TOML configuration file
+  /// 3. Default config from @Db annotation (if provided)
+  /// 
+  /// [config] - Optional DatabaseConfig, takes highest priority
+  /// [environment] - Environment name to load from config file (e.g., 'development', 'production')
+  /// [configPath] - Optional path to config file, auto-detects if not provided
   /// [customMigrations] - Additional custom migrations to run alongside generated migrations
   /// [validateSchema] - If true, validates schema matches database
   /// [autoCreateSchema] - If true, creates all tables before running migrations (default: true)
   /// Throws [StateError] if schema changed but migration version not bumped
   /// Throws [StateError] if custom migrations conflict with generated migrations
+  /// Throws [ConfigurationException] if environment specified but config file not found
   Future<void> setup({
     DatabaseConfig? config,
+    String? environment,
+    String? configPath,
     List<DatabaseMigration> customMigrations = const [],
     bool validateSchema = true,
     bool autoCreateSchema = true,
   }) async {
-    // Use provided config or default from annotation
-    final effectiveConfig = config ${hasConfig ? '?? $defaultConfigFunc()' : ''};
-    ${hasConfig ? '' : 'if (effectiveConfig == null) { throw StateError("No DatabaseConfig provided and no default config in @Db annotation"); }'}
+    // Resolve configuration: explicit config > environment file > annotation default
+    DatabaseConfig? effectiveConfig = config;
+    
+    if (effectiveConfig == null && environment != null) {
+      final loader = DatabaseConfigLoader(configPath: configPath);
+      effectiveConfig = loader.load(environment);
+    }
+    
+    effectiveConfig ??= ${hasConfig ? '$defaultConfigFunc()' : 'null'};
+    ${hasConfig ? '' : 'if (effectiveConfig == null) { throw StateError("No DatabaseConfig provided. Use config parameter, environment parameter, or add config to @Db annotation"); }'}
     
     // Initialize connection if not already connected
     await init(effectiveConfig);
