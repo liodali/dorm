@@ -17,6 +17,7 @@ export 'src/column_metadata.dart';
 // Database connection
 export 'src/database/database_connection.dart';
 export 'src/database/database_factory.dart';
+export 'src/database/database_config_loader.dart';
 export 'src/database/postgresql_connection.dart';
 export 'src/database/mysql_connection.dart';
 export 'src/database/sqlite_connection.dart';
