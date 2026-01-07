@@ -20,6 +20,7 @@ dependencies:
   # path: ^1.9.0
   postgres: ^3.5.9
   sqlite3: ^3.1.1
+  mysql_client_plus: ^0.1.2
   analyzer: ^9.0.0
   source_gen: ^4.1.1
   dart_style: ^3.1.3
