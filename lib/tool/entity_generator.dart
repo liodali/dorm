@@ -5,7 +5,6 @@ import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart';
 import 'package:collection/collection.dart';
 import 'package:dormql/src/annotation.dart';
-import 'package:dormql/src/column_metadata.dart';
 import 'package:dormql/src/database/database_connection.dart';
 import 'package:source_gen/source_gen.dart';
 import 'db_type_helper.dart';

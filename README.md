@@ -158,6 +158,226 @@ void main() async {
 
 ---
 
+## Type-Safe Column References
+
+DORM v0.4.0 introduces type-safe column references that replace string-based column selection with compile-time validated `ColumnMetadata` objects.
+
+### Usage
+
+```dart
+// Type-safe column selection
+final users = await userRepo.query()
+  .selectColumns([
+    UserEntity.columns.id,
+    UserEntity.columns.name,
+    UserEntity.columns.email,
+  ])
+  .where('age > @age', {'age': 18})
+  .toList();
+
+// Access column metadata
+final idColumn = UserEntity.columns.id;
+print(idColumn.fieldName);    // 'id'
+print(idColumn.columnName);   // 'id'
+print(idColumn.dartType);     // 'int?'
+print(idColumn.sqlType);      // 'INTEGER'
+print(idColumn.isPrimaryKey); // true
+```
+
+### Benefits
+
+- **Compile-time type safety** - IDE catches typos before runtime
+- **IDE autocomplete support** - Full autocomplete for all column names
+- **No string typos** - Column names are verified at compile time
+- **Refactoring-friendly** - Renaming fields updates all references automatically
+- **Backward compatible** - Old string syntax still works
+
+### ColumnMetadata Properties
+
+```dart
+class ColumnMetadata {
+  String fieldName;        // Dart field name (e.g., 'firstName')
+  String columnName;       // SQL column name (e.g., 'first_name')
+  String dartType;         // Dart type (e.g., 'String', 'int?')
+  String sqlType;          // SQL type (e.g., 'TEXT', 'INTEGER')
+  bool isPrimaryKey;
+  bool isNullable;
+  String tableName;
+}
+```
+
+---
+
+## Automatic DTO Generation
+
+DORM automatically generates Data Transfer Objects (DTOs) for all entities. DTOs exclude relationship fields by default, making them perfect for API responses and data transfer.
+
+### Setup
+
+Add the DTO part directive to your entity file:
+
+```dart
+import 'package:dormql/dorm.dart';
+
+part 'user_entity.orm.g.dart';
+part 'user_entity.dto.g.dart';  // Add this
+
+@Entity(tableName: 'users')
+class UserEntity {
+  @Id.postgres()
+  int? id;
+  String name;
+  String email;
+  String? address;
+  String? phoneNumber;
+
+  @OneToMany(targetEntity: PostEntity)
+  List<PostEntity>? posts;  // Excluded from DTO
+
+  UserEntity({
+    this.id,
+    required this.name,
+    required this.email,
+    this.address,
+    this.phoneNumber,
+  });
+}
+```
+
+### Generated DTO Features
+
+The DTO class is automatically generated with these methods:
+
+- **`fromEntity()`** - Create DTO from entity instance
+- **`toEntity()`** - Convert DTO back to entity
+- **`copyWith()`** - Create modified copy with optional fields
+- **`toJson()`** / **`fromJson()`** - JSON serialization
+- **Proper `==`, `hashCode`, `toString()`** - Value semantics
+
+### Usage Examples
+
+```dart
+// Create DTO from entity
+final user = await userRepo.findById(1);
+final userDto = UserEntityDto.fromEntity(user!);
+
+// JSON serialization (relationships excluded)
+final json = userDto.toJson();
+// Output: {'id': 1, 'name': 'John', 'email': 'john@example.com', ...}
+
+// Receive DTO from API
+final receivedDto = UserEntityDto.fromJson(jsonData);
+
+// Immutable updates
+final updatedDto = userDto.copyWith(name: 'Jane');
+
+// Convert back to entity
+final modifiedEntity = updatedDto.toEntity();
+await userRepo.save(modifiedEntity);
+```
+
+### What's Included in DTO
+
+- ✅ **Primitive fields** - int, String, bool, DateTime, double, etc.
+- ❌ **Relationship fields** - @OneToMany, @ManyToOne, @OneToOne, @ManyToMany
+- ❌ **@Ignore fields** - Fields marked with @Ignore annotation
+
+### Complete DTO Example
+
+For the UserEntity above, DORM generates:
+
+```dart
+class UserEntityDto {
+  final int? id;
+  final String name;
+  final String email;
+  final String? address;
+  final String? phoneNumber;
+
+  const UserEntityDto({
+    this.id,
+    required this.name,
+    required this.email,
+    this.address,
+    this.phoneNumber,
+  });
+
+  factory UserEntityDto.fromEntity(UserEntity entity) {
+    return UserEntityDto(
+      id: entity.id,
+      name: entity.name,
+      email: entity.email,
+      address: entity.address,
+      phoneNumber: entity.phoneNumber,
+    );
+  }
+
+  UserEntity toEntity() {
+    return UserEntity(
+      id: id,
+      name: name,
+      email: email,
+      address: address,
+      phoneNumber: phoneNumber,
+    );
+  }
+
+  UserEntityDto copyWith({
+    int? id,
+    String? name,
+    String? email,
+    String? address,
+    String? phoneNumber,
+  }) {
+    return UserEntityDto(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      address: address ?? this.address,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'email': email,
+    'address': address,
+    'phoneNumber': phoneNumber,
+  };
+
+  factory UserEntityDto.fromJson(Map<String, dynamic> json) {
+    return UserEntityDto(
+      id: json['id'] as int?,
+      name: json['name'] as String,
+      email: json['email'] as String,
+      address: json['address'] as String?,
+      phoneNumber: json['phoneNumber'] as String?,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is UserEntityDto &&
+        other.id == id &&
+        other.name == name &&
+        other.email == email &&
+        other.address == address &&
+        other.phoneNumber == phoneNumber;
+  }
+
+  @override
+  int get hashCode => Object.hash(id, name, email, address, phoneNumber);
+
+  @override
+  String toString() =>
+    'UserEntityDto(id: $id, name: $name, email: $email, address: $address, phoneNumber: $phoneNumber)';
+}
+```
+
+---
+
 ## Analyzer Plugin
 
 DORM includes a static analysis plugin (`dormql_analyzer_plugin`) that validates your entity configurations at development time, catching errors before runtime.

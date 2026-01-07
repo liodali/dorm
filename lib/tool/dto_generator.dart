@@ -49,7 +49,7 @@ class DtoGenerator extends GeneratorForAnnotation<Entity> {
           field.type.nullabilitySuffix == NullabilitySuffix.question;
       primitiveFields.add({
         'name': field.name,
-        'type': field.type.getDisplayString(withNullability: true),
+        'type': field.type.getDisplayString(),
         'isNullable': isNullable,
       });
     }
@@ -59,7 +59,16 @@ class DtoGenerator extends GeneratorForAnnotation<Entity> {
       return '';
     }
 
-    return _generateDtoCode(className!, dtoClassName, primitiveFields);
+    // Get source file path for part of directive
+    final sourceFilePath = buildStep.inputId.path;
+    final entityFileName = _getEntityFileName(sourceFilePath);
+
+    return _generateDtoCode(
+      className!,
+      dtoClassName,
+      primitiveFields,
+      entityFileName,
+    );
   }
 
   ElementAnnotation? _getAnnotation(FieldElement field, String name) {
@@ -68,79 +77,110 @@ class DtoGenerator extends GeneratorForAnnotation<Entity> {
     );
   }
 
+  String _getEntityFileName(String inputPath) {
+    // Extract just the file name from the full path
+    // Example: lib/src/models/user_entity.dart -> user_entity.dart
+    return inputPath.split('/').last;
+  }
+
   String _generateDtoCode(
     String entityClassName,
     String dtoClassName,
     List<Map<String, dynamic>> fields,
+    String entityFileName,
   ) {
     // Generate field declarations
-    final fieldDeclarations = fields.map((f) {
-      return '  final ${f['type']} ${f['name']};';
-    }).join('\n');
+    final fieldDeclarations = fields
+        .map((f) {
+          return '  final ${f['type']} ${f['name']};';
+        })
+        .join('\n');
 
     // Generate constructor parameters
-    final constructorParams = fields.map((f) {
-      final isRequired = !f['isNullable'];
-      final prefix = isRequired ? 'required ' : '';
-      return '    ${prefix}this.${f['name']},';
-    }).join('\n');
+    final constructorParams = fields
+        .map((f) {
+          final isRequired = !f['isNullable'];
+          final prefix = isRequired ? 'required ' : '';
+          return '    ${prefix}this.${f['name']},';
+        })
+        .join('\n');
 
     // Generate fromEntity factory
-    final fromEntityMappings = fields.map((f) {
-      return '      ${f['name']}: entity.${f['name']},';
-    }).join('\n');
+    final fromEntityMappings = fields
+        .map((f) {
+          return '      ${f['name']}: entity.${f['name']},';
+        })
+        .join('\n');
 
     // Generate toEntity method mappings
-    final toEntityMappings = fields.map((f) {
-      return '      ${f['name']}: ${f['name']},';
-    }).join('\n');
+    final toEntityMappings = fields
+        .map((f) {
+          return '      ${f['name']}: ${f['name']},';
+        })
+        .join('\n');
 
     // Generate copyWith method - make parameters nullable without double ?
-    final copyWithParams = fields.map((f) {
-      final type = f['type'] as String;
-      // If type already ends with ?, use it as is, otherwise add ?
-      final nullableType = type.endsWith('?') ? type : '$type?';
-      return '    $nullableType ${f['name']},';
-    }).join('\n');
+    final copyWithParams = fields
+        .map((f) {
+          final type = f['type'] as String;
+          // If type already ends with ?, use it as is, otherwise add ?
+          final nullableType = type.endsWith('?') ? type : '$type?';
+          return '    $nullableType ${f['name']},';
+        })
+        .join('\n');
 
-    final copyWithMappings = fields.map((f) {
-      return '      ${f['name']}: ${f['name']} ?? this.${f['name']},';
-    }).join('\n');
+    final copyWithMappings = fields
+        .map((f) {
+          return '      ${f['name']}: ${f['name']} ?? this.${f['name']},';
+        })
+        .join('\n');
 
     // Generate toJson method
-    final toJsonMappings = fields.map((f) {
-      return '      \'${f['name']}\': ${f['name']},';
-    }).join('\n');
+    final toJsonMappings = fields
+        .map((f) {
+          return '      \'${f['name']}\': ${f['name']},';
+        })
+        .join('\n');
 
     // Generate fromJson factory - handle type casting properly
-    final fromJsonMappings = fields.map((f) {
-      final type = f['type'] as String;
-      // For nullable types, handle null values
-      if (f['isNullable']) {
-        return '      ${f['name']}: json[\'${f['name']}\'] as ${type},';
-      } else {
-        return '      ${f['name']}: json[\'${f['name']}\'] as ${type},';
-      }
-    }).join('\n');
+    final fromJsonMappings = fields
+        .map((f) {
+          final type = f['type'] as String;
+          // For nullable types, handle null values
+          if (f['isNullable']) {
+            return '      ${f['name']}: json[\'${f['name']}\'] as $type,';
+          } else {
+            return '      ${f['name']}: json[\'${f['name']}\'] as $type,';
+          }
+        })
+        .join('\n');
 
     // Generate equality comparisons
-    final equalityComparisons = fields.map((f) {
-      return '        other.${f['name']} == ${f['name']}';
-    }).join(' &&\n');
+    final equalityComparisons = fields
+        .map((f) {
+          return '        other.${f['name']} == ${f['name']}';
+        })
+        .join(' &&\n');
 
     // Generate hashCode fields
-    final hashCodeFields = fields.map((f) {
-      return '      ${f['name']},';
-    }).join('\n');
+    final hashCodeFields = fields
+        .map((f) {
+          return '      ${f['name']},';
+        })
+        .join('\n');
 
     // Generate toString fields
-    final toStringFields = fields.map((f) {
-      return '${f['name']}: \$${f['name']}';
-    }).join(', ');
+    final toStringFields = fields
+        .map((f) {
+          return '${f['name']}: \$${f['name']}';
+        })
+        .join(', ');
 
     return '''
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // DTO for $entityClassName
+
+part of '$entityFileName';
 
 /// Data Transfer Object for $entityClassName
 /// Excludes relationship fields and only includes primitive data
